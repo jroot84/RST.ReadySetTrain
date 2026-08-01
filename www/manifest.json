@@ -2,19 +2,13 @@
   "name": "RST \u2022 Ready Set Train",
   "short_name": "RST",
   "description": "Weekly workout routine tracker with a calendar, exercise library, and progress tracking \u2014 all saved on your device.",
-  "start_url": "./",
+ "start_url": "./",
   "scope": "./",
-  "id": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#14181C",
-  "theme_color": "#14181C",
+  "background_color": "#F5F6F2",
+  "theme_color": "#1F6F54",
   "icons": [
-    {
-      "src": "icon.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    }
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

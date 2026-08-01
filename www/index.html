@@ -25,6 +25,19 @@
     --cyan:#1C948C; --cyan-dim:#D3EFED; --cyan-tag:#136560;
     --chalk:#1B2226; --chalk-dim:#69747C; --scrollbar:#C7CED3;
   }
+  /* Accent palettes — override just the accent tokens; base theme (dark/light)
+     still controls background/text tokens above. "ember" is the default and
+     needs no override block since it matches the base theme values. */
+  [data-theme="dark"][data-palette="ocean"]   { --ember:#3B82F6; --ember-dim:#1E3A5F; --ember-tag:#93C5FD; --ember-wash: rgba(59,130,246,0.08); }
+  [data-theme="light"][data-palette="ocean"]  { --ember:#2563EB; --ember-dim:#DBEAFE; --ember-tag:#1D4ED8; --ember-wash: rgba(37,99,235,0.08); }
+  [data-theme="dark"][data-palette="violet"]  { --ember:#8B5CF6; --ember-dim:#3D2B6B; --ember-tag:#D8CBFB; --ember-wash: rgba(139,92,246,0.08); }
+  [data-theme="light"][data-palette="violet"] { --ember:#7C3AED; --ember-dim:#EDE4FE; --ember-tag:#6025C4; --ember-wash: rgba(124,58,237,0.08); }
+  [data-theme="dark"][data-palette="forest"]  { --ember:#43A047; --ember-dim:#234C29; --ember-tag:#A8DDAE; --ember-wash: rgba(67,160,71,0.08); }
+  [data-theme="light"][data-palette="forest"] { --ember:#2E7D32; --ember-dim:#DCF3DD; --ember-tag:#1B5E20; --ember-wash: rgba(46,125,50,0.08); }
+  [data-theme="dark"][data-palette="crimson"]  { --ember:#E0446B; --ember-dim:#6E2434; --ember-tag:#F6B3C4; --ember-wash: rgba(224,68,107,0.08); }
+  [data-theme="light"][data-palette="crimson"] { --ember:#C2185B; --ember-dim:#FBDCE6; --ember-tag:#99123F; --ember-wash: rgba(194,24,91,0.08); }
+  [data-theme="dark"][data-palette="slate"]   { --ember:#8A93A6; --ember-dim:#3A414C; --ember-tag:#D4D9E0; --ember-wash: rgba(138,147,166,0.08); }
+  [data-theme="light"][data-palette="slate"]  { --ember:#52606D; --ember-dim:#E5E8EC; --ember-tag:#37414C; --ember-wash: rgba(82,96,109,0.08); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
   body {
@@ -140,6 +153,15 @@
   .pill-row { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px; }
   .pill { flex-shrink:0; padding:6px 12px; border-radius:999px; font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.06em; background: var(--bg800); color: var(--chalk-dim); border:1px solid var(--line); }
   .pill.active { background: var(--ember-dim); color: var(--chalk); border-color: var(--ember); }
+  .pill-removable { display:inline-flex; align-items:center; gap:6px; }
+  .pill-removable button { display:flex; color: inherit; opacity:0.7; }
+  .pill-removable button:hover { opacity:1; }
+  .swatch-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+  .swatch-btn { display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .swatch-dot { width:30px; height:30px; border-radius:50%; border:2px solid transparent; }
+  .swatch-btn.active .swatch-dot { border-color: var(--chalk); }
+  .swatch-label { font-family:'JetBrains Mono',monospace; font-size:9px; text-transform:uppercase; letter-spacing:0.06em; color: var(--chalk-dim); }
+  .swatch-btn.active .swatch-label { color: var(--chalk); }
   .lib-row { border-radius:8px; background: var(--bg900); border:1px solid var(--line); margin-bottom:8px; }
   .lib-row-head { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; text-align:left; }
   .lib-row-head .lname { font-weight:600; font-size:15px; color: var(--chalk); }
@@ -210,6 +232,8 @@ const ICON = {
   activity: '<path d="M3 12h4l2 7 4-14 2 7h6"/>',
   download: '<path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/>',
   upload: '<path d="M12 21V9m0 0l-4 4m4-4l4 4M4 3h16"/>',
+  eye: '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M3 3l18 18M10.6 10.6a3 3 0 004.2 4.2M9.9 4.2A11 11 0 0122 12s-1.3 2.3-3.5 4.1M6.3 6.3C4 7.9 2 12 2 12s2.1 4.2 6 6.1"/>',
 };
 function icon(name, size, extraAttrs) {
   size = size || 16;
@@ -221,7 +245,7 @@ function icon(name, size, extraAttrs) {
 /* ------------------------------------------------------------------ */
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const DAY_SHORT = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
-const EQUIPMENT = ["Bodyweight","Dumbbells","Curl Bar","None"];
+const DEFAULT_EQUIPMENT = ["Bodyweight","Dumbbells","Curl Bar","None"];
 
 const SEED_LIBRARY = [
   { id:"pushup", name:"Push-ups", equipment:"Bodyweight", category:"strength", muscle:"Chest / Triceps",
@@ -296,6 +320,20 @@ function seedRoutine() {
   };
 }
 
+// A brand-new install starts on a clean slate — every day exists (so the
+// rest of the UI never has to guard against a missing day) but nothing is
+// scheduled yet. The person builds their own week in the Routine Builder,
+// right after onboarding.
+function blankRoutine() {
+  const blank = {};
+  for (let i = 0; i < 7; i++) blank[i] = { label: "Rest Day", type: "strength", blocks: [] };
+  return blank;
+}
+
+function routineIsEmpty() {
+  return Object.values(state.routine).every(d => d.blocks.length === 0);
+}
+
 /* ------------------------------------------------------------------ */
 /* Utilities                                                            */
 /* ------------------------------------------------------------------ */
@@ -328,7 +366,8 @@ function loadData() {
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      routine: state.routine, library: state.library, progress: state.progress, theme: state.theme,
+      routine: state.routine, library: state.library, equipment: state.equipment,
+      progress: state.progress, theme: state.theme, palette: state.palette,
       profile: state.profile, onboardingDone: state.onboardingDone,
     }));
   } catch (e) { console.error("Failed to save", e); }
@@ -340,8 +379,8 @@ function saveData() {
 function exportBackup() {
   const payload = {
     app: "RST", version: 1, exportedAt: new Date().toISOString(),
-    routine: state.routine, library: state.library, progress: state.progress,
-    theme: state.theme, profile: state.profile, onboardingDone: state.onboardingDone,
+    routine: state.routine, library: state.library, equipment: state.equipment, progress: state.progress,
+    theme: state.theme, palette: state.palette, profile: state.profile, onboardingDone: state.onboardingDone,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -385,14 +424,25 @@ function handleImportFile(file) {
   reader.readAsText(file);
 }
 
+function migrateProfile(p) {
+  if (!p) return p;
+  if (!Array.isArray(p.goals)) {
+    p.goals = (p.goal && typeof p.goal === "string") ? [p.goal] : [];
+  }
+  delete p.goal;
+  return p;
+}
+
 function applyPendingImport() {
   const data = state.pendingImport && state.pendingImport.data;
   if (!data) return;
   if (data.routine) state.routine = data.routine;
   if (data.library) state.library = data.library;
+  if (data.equipment) state.equipment = data.equipment;
   if (data.progress) state.progress = data.progress;
   if (data.theme) state.theme = data.theme;
-  if (data.profile) state.profile = data.profile;
+  if (data.palette) state.palette = data.palette;
+  if (data.profile) state.profile = migrateProfile(data.profile);
   if (typeof data.onboardingDone === "boolean") state.onboardingDone = data.onboardingDone;
   state.pendingImport = null;
   state.importError = "";
@@ -410,16 +460,41 @@ const GOALS = [
   { id:"endurance", label:"Improve Endurance" },
   { id:"strength", label:"Increase Strength" },
 ];
+const INCOMPATIBLE_GOAL_PAIRS = [
+  ["build-muscle", "lose-weight"],
+];
+function incompatibleGoalWarning(goalIds) {
+  for (const [a, b] of INCOMPATIBLE_GOAL_PAIRS) {
+    if (goalIds.includes(a) && goalIds.includes(b)) {
+      const la = GOALS.find(g => g.id === a).label, lb = GOALS.find(g => g.id === b).label;
+      return la+" and "+lb+" usually pull in different directions — building muscle typically wants a calorie surplus, losing weight a deficit. Both at once (\"body recomposition\") is possible, just slower than focusing on one first.";
+    }
+  }
+  return null;
+}
 const GENDERS = [
   { id:"female", label:"Female" },
   { id:"male", label:"Male" },
 ];
+const PALETTES = [
+  { id:"ember", label:"Ember" },
+  { id:"ocean", label:"Ocean" },
+  { id:"violet", label:"Violet" },
+  { id:"forest", label:"Forest" },
+  { id:"crimson", label:"Crimson" },
+  { id:"slate", label:"Slate" },
+];
+// Swatch preview colors shown in Settings — dark-mode hex for each palette,
+// independent of the CSS custom properties (those flip per light/dark mode).
+const PALETTE_SWATCH = { ember:"#E8622C", ocean:"#3B82F6", violet:"#8B5CF6", forest:"#43A047", crimson:"#E0446B", slate:"#8A93A6" };
 
 const state = {
-  routine: seedRoutine(),
+  routine: blankRoutine(),
   library: SEED_LIBRARY.slice(),
+  equipment: DEFAULT_EQUIPMENT.slice(),
   progress: {},              // dateKey -> { doneBlockIds: [] }
   theme: "dark",
+  palette: "ember",
   tab: "today",
   selectedDate: new Date(),
   viewMonth: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })(),
@@ -430,9 +505,11 @@ const state = {
   librarySearch: "",
   libraryEquip: "All",
   showAddExercise: false,
+  showManageEquipment: false,
   addForm: { name:"", equipment:"Bodyweight", category:"strength", muscle:"", instructions:"" },
   confirmingAction: null,
-  profile: { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goal:"" },
+  confirmDeleteExId: null,
+  profile: { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[] },
   onboardingDone: false,
   showCheckModal: false,
   pendingImport: null,     // { fileName, data } awaiting confirmation
@@ -443,6 +520,7 @@ function exById(id) { return state.library.find(e => e.id === id); }
 
 function applyTheme() {
   document.documentElement.setAttribute("data-theme", state.theme);
+  document.documentElement.setAttribute("data-palette", state.palette || "ember");
 }
 
 /* ------------------------------------------------------------------ */
@@ -517,7 +595,7 @@ function computeCheck() {
   const weight = Number(p.weightLbs) || 0;
   const bmi = heightIn > 0 ? (703 * weight) / (heightIn * heightIn) : null;
   const age = Number(p.age) || null;
-  const goal = p.goal || "general-fitness";
+  const goals = (p.goals && p.goals.length) ? p.goals : ["general-fitness"];
 
   let strengthDays = 0, cardioDays = 0, totalSets = 0, totalCardioMin = 0;
   const dayTypes = [];
@@ -538,26 +616,12 @@ function computeCheck() {
 
   const suggestions = [];
 
-  if (goal === "build-muscle") {
-    if (strengthDays < 3) suggestions.push({ type:"goal", text:"Your goal is building muscle, but only "+strengthDays+" strength day(s) are scheduled. Three to four strength sessions a week generally gives muscle more stimulus to grow." });
-    else suggestions.push({ type:"goal", text:"Your strength frequency ("+strengthDays+" days/week) is solid for building muscle." });
-    suggestions.push({ type:"tip", text:"For hypertrophy, most sets in the 8–12 rep range (which your plan already uses) work well. Add weight or reps gradually as sets get easier — that progressive overload is what actually drives growth." });
-  } else if (goal === "lose-weight") {
-    if (cardioDays < 3) suggestions.push({ type:"goal", text:"Your goal is losing weight, but only "+cardioDays+" cardio day(s) are scheduled. Consider adding a session or extending duration to raise weekly activity." });
-    else suggestions.push({ type:"goal", text:"Your cardio frequency ("+cardioDays+" days/week) supports a weight-loss goal." });
-    if (strengthDays < 2) suggestions.push({ type:"tip", text:"Keep at least 2 strength sessions a week even while focused on weight loss — it helps preserve muscle while you're in a calorie deficit." });
-    suggestions.push({ type:"tip", text:"Weight loss ultimately comes down to a sustained calorie deficit over time — training is one piece of that, alongside nutrition and daily activity." });
-  } else if (goal === "endurance") {
-    if (totalCardioMin < 90) suggestions.push({ type:"goal", text:"For an endurance goal, weekly cardio is currently around "+Math.round(totalCardioMin)+" minutes. Building toward 150+ minutes a week is a common general-fitness benchmark." });
-    else suggestions.push({ type:"goal", text:"Weekly cardio volume (~"+Math.round(totalCardioMin)+" min) is in a solid range for endurance work." });
-    suggestions.push({ type:"tip", text:"Vary intensity — mix easy-paced sessions with one shorter, faster session each week to build both aerobic base and speed." });
-  } else if (goal === "strength") {
-    suggestions.push({ type:"tip", text:"For a pure strength focus, lower rep ranges (roughly 4–6) with heavier resistance and longer rest (2–3 min) between sets tend to build strength faster than the 10–12 rep range currently in your plan." });
-    if (strengthDays < 3) suggestions.push({ type:"goal", text:"Consider 3 or more strength days a week, prioritizing your main lifts." });
-  } else {
-    if (strengthDays >= 2 && cardioDays >= 2) suggestions.push({ type:"goal", text:"Your plan already balances strength ("+strengthDays+" days) and cardio ("+cardioDays+" days), which fits a general fitness goal well." });
-    else suggestions.push({ type:"goal", text:"For general fitness, aim for a mix of both strength and cardio most weeks." });
-  }
+  const warning = incompatibleGoalWarning(goals);
+  if (warning) suggestions.push({ type:"warning", text: warning });
+
+  goals.forEach(goal => {
+    suggestions.push(...goalSuggestions(goal, { strengthDays, cardioDays, totalCardioMin }));
+  });
 
   if (maxConsecStrength >= 3) suggestions.push({ type:"recovery", text:"Your plan has "+maxConsecStrength+" strength days in a row at least once this week. Muscles generally recover better with a rest day or light cardio between strength sessions." });
   if (restDays === 0) suggestions.push({ type:"recovery", text:"Every day currently has something scheduled. Even one true rest day a week helps recovery and lowers injury risk." });
@@ -575,12 +639,53 @@ function computeCheck() {
     else bmiNote = "Your BMI falls in the typical range, though BMI is a rough screening number — it doesn't account for muscle mass, body composition, or individual health.";
   }
 
-  return { bmi, bmiCat: bmi ? bmiCategory(bmi) : null, bmiNote, strengthDays, cardioDays, restDays, totalSets, totalCardioMin, suggestions, goal };
+  return { bmi, bmiCat: bmi ? bmiCategory(bmi) : null, bmiNote, strengthDays, cardioDays, restDays, totalSets, totalCardioMin, suggestions, goals };
+}
+
+function goalSuggestions(goal, ctx) {
+  const { strengthDays, cardioDays, totalCardioMin } = ctx;
+  const out = [];
+  if (goal === "build-muscle") {
+    if (strengthDays < 3) out.push({ type:"goal", text:"Your goal is building muscle, but only "+strengthDays+" strength day(s) are scheduled. Three to four strength sessions a week generally gives muscle more stimulus to grow." });
+    else out.push({ type:"goal", text:"Your strength frequency ("+strengthDays+" days/week) is solid for building muscle." });
+    out.push({ type:"tip", text:"For hypertrophy, most sets in the 8–12 rep range (which your plan already uses) work well. Add weight or reps gradually as sets get easier — that progressive overload is what actually drives growth." });
+  } else if (goal === "lose-weight") {
+    if (cardioDays < 3) out.push({ type:"goal", text:"Your goal is losing weight, but only "+cardioDays+" cardio day(s) are scheduled. Consider adding a session or extending duration to raise weekly activity." });
+    else out.push({ type:"goal", text:"Your cardio frequency ("+cardioDays+" days/week) supports a weight-loss goal." });
+    if (strengthDays < 2) out.push({ type:"tip", text:"Keep at least 2 strength sessions a week even while focused on weight loss — it helps preserve muscle while you're in a calorie deficit." });
+    out.push({ type:"tip", text:"Weight loss ultimately comes down to a sustained calorie deficit over time — training is one piece of that, alongside nutrition and daily activity." });
+  } else if (goal === "endurance") {
+    if (totalCardioMin < 90) out.push({ type:"goal", text:"For an endurance goal, weekly cardio is currently around "+Math.round(totalCardioMin)+" minutes. Building toward 150+ minutes a week is a common general-fitness benchmark." });
+    else out.push({ type:"goal", text:"Weekly cardio volume (~"+Math.round(totalCardioMin)+" min) is in a solid range for endurance work." });
+    out.push({ type:"tip", text:"Vary intensity — mix easy-paced sessions with one shorter, faster session each week to build both aerobic base and speed." });
+  } else if (goal === "strength") {
+    out.push({ type:"tip", text:"For a pure strength focus, lower rep ranges (roughly 4–6) with heavier resistance and longer rest (2–3 min) between sets tend to build strength faster than the 10–12 rep range currently in your plan." });
+    if (strengthDays < 3) out.push({ type:"goal", text:"Consider 3 or more strength days a week, prioritizing your main lifts." });
+  } else {
+    if (strengthDays >= 2 && cardioDays >= 2) out.push({ type:"goal", text:"Your plan already balances strength ("+strengthDays+" days) and cardio ("+cardioDays+" days), which fits a general fitness goal well." });
+    else out.push({ type:"goal", text:"For general fitness, aim for a mix of both strength and cardio most weeks." });
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
 /* Render: shared bits                                                  */
 /* ------------------------------------------------------------------ */
+function renderGoalPicker(selectedGoals) {
+  let html = '<div class="settings-desc" style="max-width:none;margin-bottom:8px;">Goals (pick any that apply)</div>';
+  html += '<div class="pill-row" style="flex-wrap:wrap;overflow-x:visible;">';
+  GOALS.forEach(g => {
+    const active = selectedGoals.includes(g.id);
+    html += '<button type="button" class="pill '+(active?"active":"")+'" data-action="toggle-goal" data-goal-id="'+g.id+'">'+g.label+'</button>';
+  });
+  html += '</div>';
+  const warn = incompatibleGoalWarning(selectedGoals);
+  if (warn) {
+    html += '<div class="foot-note" style="margin:2px 0 4px;"><span style="color:var(--ember);display:flex;">'+icon("alert",13)+'</span><p style="color:var(--ember-tag);">'+esc(warn)+'</p></div>';
+  }
+  return html;
+}
+
 function renderDayTag(type) {
   const isCardio = type === "cardio";
   return '<span class="day-tag '+(isCardio?"cardio":"strength")+'">'+icon(isCardio?"wind":"flame",11)+(isCardio?"Cardio":"Strength")+'</span>';
@@ -745,7 +850,12 @@ function renderCalendar() {
 /* ------------------------------------------------------------------ */
 function renderBuilder() {
   const day = state.routine[state.builderDay];
-  let html = '<div class="section-label font-mono">Build your week</div>';
+  let html = "";
+  if (routineIsEmpty()) {
+    html += '<div class="banner" style="align-items:flex-start;">'+icon("flame",16)+
+      '<span>Welcome to RST. Build your week below — pick a day, then tap "Add exercise." Leave any day empty to make it a rest day.</span></div>';
+  }
+  html += '<div class="section-label font-mono">Build your week</div>';
   html += '<div class="day-tabs" style="margin-bottom:20px;">';
   DAY_SHORT.forEach((d,i) => {
     const active = state.builderDay === i;
@@ -794,7 +904,7 @@ function renderBuilder() {
 
 function renderPicker() {
   const q = state.pickerQuery.toLowerCase();
-  const filtered = state.library.filter(e => e.name.toLowerCase().includes(q));
+  const filtered = state.library.filter(e => !e.hidden && e.name.toLowerCase().includes(q));
   let html = '<div class="modal-overlay" data-action="close-picker">';
   html += '<div class="modal">';
   html += '<div class="modal-head"><span class="font-display">Choose exercise</span><button data-action="close-picker">'+icon("x",18)+'</button></div>';
@@ -827,10 +937,28 @@ function renderLibrary() {
   let html = '<div class="search-box" style="margin: 0 0 14px;"><span style="color:var(--chalk-dim);display:flex;">'+icon("search",14)+'</span><input id="lib-search" placeholder="Search library..." value="'+esc(state.librarySearch)+'" /></div>';
 
   html += '<div class="pill-row">';
-  ["All", ...EQUIPMENT].forEach(eq => {
+  ["All", ...state.equipment].forEach(eq => {
     html += '<button class="pill '+(state.libraryEquip===eq?"active":"")+'" data-action="lib-filter" data-equip="'+esc(eq)+'">'+esc(eq)+'</button>';
   });
   html += '</div>';
+
+  if (!state.showManageEquipment) {
+    html += '<button class="dashed-btn" style="margin-bottom:14px;" data-action="toggle-manage-equipment">'+icon("gear",14)+' Manage equipment</button>';
+  } else {
+    html += '<div class="card" style="margin-bottom:14px;">';
+    html += '<div class="settings-title" style="margin-bottom:8px;">Equipment</div>';
+    html += '<div class="pill-row" style="margin-bottom:12px;">';
+    state.equipment.forEach(eq => {
+      html += '<span class="pill pill-removable">'+esc(eq)+'<button data-action="remove-equipment" data-equip="'+esc(eq)+'" title="Remove">'+icon("x",11)+'</button></span>';
+    });
+    html += '</div>';
+    html += '<div class="form-row-2">';
+    html += '<input class="text-input" id="new-equip-input" placeholder="New equipment (e.g. Kettlebell)" />';
+    html += '<button class="btn-outline" data-action="add-equipment">'+icon("plus",14)+' Add</button>';
+    html += '</div>';
+    html += '<button class="btn-outline" style="margin-top:10px;width:100%;" data-action="toggle-manage-equipment">Done</button>';
+    html += '</div>';
+  }
 
   html += '<div id="lib-list">'+renderLibraryList()+'</div>';
 
@@ -843,7 +971,7 @@ function renderLibrary() {
     html += '<input class="text-input" style="margin-bottom:10px;" id="add-ex-muscle" placeholder="Muscle group (optional)" value="'+esc(f.muscle)+'" />';
     html += '<textarea class="text-input" style="margin-bottom:10px;" id="add-ex-instructions" rows="2" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
     html += '<div class="form-row-2" style="margin-bottom:12px;">';
-    html += '<select class="select-input" id="add-ex-equipment">'+EQUIPMENT.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
+    html += '<select class="select-input" id="add-ex-equipment">'+state.equipment.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
     html += '<select class="select-input" id="add-ex-category"><option value="strength" '+(f.category==="strength"?"selected":"")+'>Strength</option><option value="cardio" '+(f.category==="cardio"?"selected":"")+'>Cardio</option></select>';
     html += '</div>';
     html += '<div class="form-row-2">';
@@ -861,9 +989,10 @@ function renderLibraryList() {
   let html = "";
   filtered.forEach(ex => {
     const open = !!state.openInfo["lib-"+ex.id];
-    html += '<div class="lib-row">';
+    const hidden = !!ex.hidden;
+    html += '<div class="lib-row" style="'+(hidden?"opacity:0.55;":"")+'">';
     html += '<button class="lib-row-head" data-action="toggle-lib-info" data-ex-id="'+ex.id+'">';
-    html += '<div><div class="lname">'+esc(ex.name)+'</div><div class="lmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+'</div></div>';
+    html += '<div><div class="lname">'+esc(ex.name)+(hidden?' <span class="day-tag strength" style="margin-left:6px;">Hidden</span>':'')+'</div><div class="lmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+'</div></div>';
     html += '<div class="lib-row-icons"><span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",16)+'</span>';
     html += '<span style="display:flex;color:var(--chalk-dim);transform:'+(open?"rotate(180deg)":"none")+';transition:transform .15s;">'+icon("chevronDown",15)+'</span></div>';
     html += '</button>';
@@ -871,6 +1000,14 @@ function renderLibraryList() {
       html += '<div class="lib-detail">';
       if (ex.instructions) html += '<p>'+esc(ex.instructions)+'</p>';
       html += '<a class="yt-link" href="'+youtubeSearchUrl(ex.name)+'" target="_blank" rel="noopener noreferrer">'+icon("youtube",14)+' Watch "'+esc(ex.name)+'" on YouTube</a>';
+      html += '<div style="display:flex;gap:8px;margin-top:10px;">';
+      if (ex.custom) {
+        const confirming = state.confirmDeleteExId === ex.id;
+        html += '<button class="btn-outline" style="flex:1;'+(confirming?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="delete-exercise" data-ex-id="'+ex.id+'">'+icon("trash",13)+' '+(confirming?"Tap again to delete":"Delete exercise")+'</button>';
+      } else {
+        html += '<button class="btn-outline" style="flex:1;" data-action="toggle-hide-exercise" data-ex-id="'+ex.id+'">'+icon(hidden?"eye":"eyeOff",13)+' '+(hidden?"Unhide exercise":"Hide exercise")+'</button>';
+      }
+      html += '</div>';
       html += '</div>';
     }
     html += '</div>';
@@ -894,9 +1031,9 @@ function renderSettings() {
   html += '</div>';
   html += '<div class="form-row-2" style="margin-bottom:10px;">';
   html += '<input class="text-input" id="prof-weight" type="number" min="0" placeholder="Weight (lbs)" value="'+esc(p.weightLbs)+'" />';
-  html += '<select class="select-input" id="prof-goal"><option value="">Goal</option>'+GOALS.map(g=>'<option value="'+g.id+'" '+(p.goal===g.id?"selected":"")+'>'+g.label+'</option>').join('')+'</select>';
   html += '</div>';
-  html += '<div class="settings-desc" style="max-width:none;margin-bottom:12px;">Used only to tailor the suggestions in "Check My Workout." Saved on this device.</div>';
+  html += renderGoalPicker(p.goals);
+  html += '<div class="settings-desc" style="max-width:none;margin:10px 0 12px;">Used only to tailor the suggestions in "Check My Workout." Saved on this device.</div>';
   html += '<button class="dashed-btn" data-action="open-check-modal">'+icon("activity",14)+' Check My Workout</button>';
   html += '</div></div>';
 
@@ -906,12 +1043,26 @@ function renderSettings() {
   html += '<div class="settings-toggle">';
   html += '<button class="'+(state.theme==="dark"?"active":"")+'" data-action="set-theme" data-theme="dark">'+icon("moon",13)+' Dark</button>';
   html += '<button class="'+(state.theme==="light"?"active":"")+'" data-action="set-theme" data-theme="light">'+icon("sun",13)+' Light</button>';
-  html += '</div></div></div></div>';
+  html += '</div></div>';
+  html += '<div style="padding-top:14px;margin-top:14px;border-top:1px solid var(--line);">';
+  html += '<div class="settings-title" style="margin-bottom:2px;">Color</div>';
+  html += '<div class="settings-desc">Pick an accent color for the whole app</div>';
+  html += '<div class="swatch-row">';
+  PALETTES.forEach(pal => {
+    const active = state.palette === pal.id;
+    html += '<button type="button" class="swatch-btn '+(active?"active":"")+'" data-action="set-palette" data-palette="'+pal.id+'">';
+    html += '<span class="swatch-dot" style="background:'+PALETTE_SWATCH[pal.id]+';"></span>';
+    html += '<span class="swatch-label">'+pal.label+'</span>';
+    html += '</button>';
+  });
+  html += '</div></div>';
+  html += '</div></div>';
 
   html += '<div class="settings-block"><div class="section-label font-mono">Data</div><div class="card">';
   html += settingsAction("clear-progress", "Clear checked-off progress", "Wipes every completed checkmark on every date. Your routine stays intact.");
-  html += settingsAction("reset-routine", "Reset routine to default", "Restores the original Mon–Sun strength / cardio split.");
-  html += settingsAction("reset-library", "Reset exercise library", "Removes custom exercises you've added and restores the built-in list.");
+  html += settingsAction("reset-routine", "Load sample routine", "Replaces your current week with the built-in Mon–Sun strength / cardio split.");
+  html += settingsAction("reset-routine-blank", "Clear routine to blank", "Removes every scheduled exercise so all seven days start empty, ready to rebuild.");
+  html += settingsAction("reset-library", "Reset exercise library", "Removes custom exercises and un-hides any default ones — restores the built-in list exactly.");
   html += '</div></div>';
 
   html += '<div class="settings-block"><div class="section-label font-mono">Backup</div><div class="card">';
@@ -937,6 +1088,10 @@ function renderSettings() {
   }
   html += '</div></div>';
 
+  html += '<div class="settings-block"><div class="section-label font-mono" style="color:var(--ember);">Danger zone</div><div class="card" style="border-color:var(--ember);">';
+  html += settingsAction("reset-app", "Reset entire app", "Erases everything on this device — routine, library, equipment list, progress, profile, and appearance — and takes you back through setup from scratch. This can't be undone.");
+  html += '</div></div>';
+
   html += '<div class="settings-block"><div class="section-label font-mono">About</div><div class="card">';
   html += '<div class="about-row"><div class="brand-icon" style="width:28px;height:28px;">'+icon("dumbbell",14)+'</div>';
   html += '<div><div class="font-display" style="text-transform:uppercase;letter-spacing:0.04em;font-size:14px;">RST <span class="font-mono" style="color:var(--chalk-dim);font-size:10px;letter-spacing:0.08em;">• READY SET TRAIN</span></div>';
@@ -946,11 +1101,12 @@ function renderSettings() {
 }
 function settingsAction(id, title, desc) {
   const confirming = state.confirmingAction === id;
-  const label = confirming ? "Tap again to confirm" : (id==="clear-progress"?"Clear":"Reset");
+  const label = confirming ? "Tap again to confirm" : (id==="clear-progress"?"Clear":(id==="reset-app"?"Erase everything":"Reset"));
+  const danger = id === "reset-app";
   return (
     '<div class="settings-item-row">'+
     '<div><div class="settings-title">'+title+'</div><div class="settings-desc">'+desc+'</div></div>'+
-    '<button class="action-btn" data-action="settings-do" data-do="'+id+'">'+icon("rotate",12)+' '+label+'</button>'+
+    '<button class="action-btn" style="'+(danger?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="settings-do" data-do="'+id+'">'+icon(danger?"alert":"rotate",12)+' '+label+'</button>'+
     '</div>'
   );
 }
@@ -988,11 +1144,12 @@ function renderCheckModal() {
     body += statTile(result.restDays, "Rest days");
     body += '</div></div>';
 
-    body += '<div class="section-label font-mono" style="margin-bottom:8px;">Suggestions for your goal</div>';
+    body += '<div class="section-label font-mono" style="margin-bottom:8px;">Suggestions</div>';
     result.suggestions.forEach(s => {
-      body += '<div class="card" style="margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;">';
+      const isWarning = s.type === "warning";
+      body += '<div class="card" style="margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;'+(isWarning?"border-color:var(--ember);":"")+'">';
       body += '<span style="color:var(--ember);flex-shrink:0;margin-top:1px;">'+icon(suggestionIcon(s.type),16)+'</span>';
-      body += '<p style="margin:0;font-size:13px;line-height:1.55;color:var(--chalk);">'+s.text+'</p>';
+      body += '<p style="margin:0;font-size:13px;line-height:1.55;color:'+(isWarning?"var(--ember-tag)":"var(--chalk)")+';">'+s.text+'</p>';
       body += '</div>';
     });
   }
@@ -1011,6 +1168,7 @@ function statTile(value, label) {
 function suggestionIcon(type) {
   if (type === "recovery") return "clock";
   if (type === "age") return "info";
+  if (type === "warning") return "alert";
   return "flame";
 }
 
@@ -1034,10 +1192,8 @@ function renderOnboarding() {
   html += '<input class="text-input" id="ob-height-ft" type="number" min="0" placeholder="Height (ft)" value="'+esc(p.heightFt)+'" />';
   html += '<input class="text-input" id="ob-height-in" type="number" min="0" max="11" placeholder="Height (in)" value="'+esc(p.heightIn)+'" />';
   html += '</div>';
-  html += '<div class="form-row-2" style="margin-bottom:10px;">';
-  html += '<input class="text-input" id="ob-weight" type="number" min="0" placeholder="Weight (lbs)" value="'+esc(p.weightLbs)+'" />';
-  html += '<select class="select-input" id="ob-goal"><option value="">Goal</option>'+GOALS.map(g=>'<option value="'+g.id+'" '+(p.goal===g.id?"selected":"")+'>'+g.label+'</option>').join('')+'</select>';
-  html += '</div>';
+  html += '<input class="text-input" id="ob-weight" type="number" min="0" placeholder="Weight (lbs)" value="'+esc(p.weightLbs)+'" style="margin-bottom:10px;" />';
+  html += renderGoalPicker(p.goals);
   html += '</div>';
   html += '<div class="form-row-2">';
   html += '<button class="btn-outline" data-action="onboarding-skip">Skip for now</button>';
@@ -1138,7 +1294,6 @@ function attachLiveInputs() {
   bindProfileField("prof-height-ft", "heightFt");
   bindProfileField("prof-height-in", "heightIn");
   bindProfileField("prof-weight", "weightLbs");
-  bindProfileField("prof-goal", "goal", true);
 
   // Onboarding fields — held in state.profile directly, saved on submit
   bindProfileField("ob-gender", "gender", true);
@@ -1146,7 +1301,6 @@ function attachLiveInputs() {
   bindProfileField("ob-height-ft", "heightFt");
   bindProfileField("ob-height-in", "heightIn");
   bindProfileField("ob-weight", "weightLbs");
-  bindProfileField("ob-goal", "goal", true);
 
   // Backup import file picker
   const importInput = document.getElementById("import-file-input");
@@ -1263,6 +1417,59 @@ document.addEventListener("click", (e) => {
     state.libraryEquip = t.dataset.equip;
     render(); return;
   }
+  if (action === "toggle-manage-equipment") {
+    state.showManageEquipment = !state.showManageEquipment;
+    render(); return;
+  }
+  if (action === "add-equipment") {
+    const input = document.getElementById("new-equip-input");
+    const val = input ? input.value.trim() : "";
+    if (!val) return;
+    const exists = state.equipment.some(eq => eq.toLowerCase() === val.toLowerCase());
+    if (!exists) state.equipment.push(val);
+    saveData(); render(); return;
+  }
+  if (action === "remove-equipment") {
+    const eq = t.dataset.equip;
+    if (state.equipment.length <= 1) return; // always keep at least one option
+    state.equipment = state.equipment.filter(e => e !== eq);
+    // Reassign any exercises using the removed equipment so nothing dangles.
+    const fallback = state.equipment[0];
+    state.library.forEach(ex => { if (ex.equipment === eq) ex.equipment = fallback; });
+    if (state.libraryEquip === eq) state.libraryEquip = "All";
+    if (state.addForm.equipment === eq) state.addForm.equipment = fallback;
+    saveData(); render(); return;
+  }
+  if (action === "toggle-hide-exercise") {
+    const ex = exById(t.dataset.exId);
+    if (ex) ex.hidden = !ex.hidden;
+    saveData();
+    document.getElementById("lib-list").innerHTML = renderLibraryList();
+    return;
+  }
+  if (action === "delete-exercise") {
+    const id = t.dataset.exId;
+    if (state.confirmDeleteExId === id) {
+      state.library = state.library.filter(e => e.id !== id);
+      state.confirmDeleteExId = null;
+      saveData(); render(); return;
+    } else {
+      state.confirmDeleteExId = id;
+      document.getElementById("lib-list").innerHTML = renderLibraryList();
+      return;
+    }
+  }
+  if (action === "toggle-goal") {
+    const id = t.dataset.goalId;
+    const goals = state.profile.goals;
+    const i = goals.indexOf(id);
+    if (i === -1) goals.push(id); else goals.splice(i, 1);
+    saveData(); render(); return;
+  }
+  if (action === "set-palette") {
+    state.palette = t.dataset.palette;
+    saveData(); render(); return;
+  }
   if (action === "open-add-exercise") {
     state.showAddExercise = true;
     render(); return;
@@ -1276,7 +1483,7 @@ document.addEventListener("click", (e) => {
     const f = state.addForm;
     if (!f.name.trim()) return;
     const id = f.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,"-") + "-" + Math.random().toString(36).slice(2,6);
-    state.library.push({ id, name: f.name.trim(), equipment: f.equipment, category: f.category, muscle: f.muscle || "Custom", instructions: f.instructions.trim() });
+    state.library.push({ id, name: f.name.trim(), equipment: f.equipment, category: f.category, muscle: f.muscle || "Custom", instructions: f.instructions.trim(), custom: true, hidden: false });
     state.showAddExercise = false;
     state.addForm = { name:"", equipment:"Bodyweight", category:"strength", muscle:"", instructions:"" };
     saveData(); render(); return;
@@ -1290,9 +1497,29 @@ document.addEventListener("click", (e) => {
     if (state.confirmingAction === doAction) {
       if (doAction === "clear-progress") state.progress = {};
       if (doAction === "reset-routine") state.routine = seedRoutine();
+      if (doAction === "reset-routine-blank") state.routine = blankRoutine();
       if (doAction === "reset-library") state.library = SEED_LIBRARY.slice();
+      if (doAction === "reset-app") {
+        state.routine = blankRoutine();
+        state.library = SEED_LIBRARY.slice();
+        state.equipment = DEFAULT_EQUIPMENT.slice();
+        state.progress = {};
+        state.profile = { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[] };
+        state.theme = "dark";
+        state.palette = "ember";
+        state.tab = "today";
+        state.libraryEquip = "All";
+        state.showManageEquipment = false;
+        state.confirmDeleteExId = null;
+        state.onboardingDone = false;
+        state.showCheckModal = false;
+        state.pickerOpen = false;
+        state.pendingImport = null;
+        state.importError = "";
+      }
       state.confirmingAction = null;
       saveData();
+      if (doAction === "reset-app") { replaceHistory(); }
     } else {
       state.confirmingAction = doAction;
     }
@@ -1318,6 +1545,7 @@ document.addEventListener("click", (e) => {
   }
   if (action === "onboarding-save" || action === "onboarding-skip") {
     state.onboardingDone = true;
+    if (routineIsEmpty()) state.tab = "builder";
     saveData(); replaceHistory(); render(); return;
   }
   if (action === "open-check-modal") {
@@ -1346,9 +1574,11 @@ document.addEventListener("click", (e) => {
   if (saved) {
     if (saved.routine) state.routine = saved.routine;
     if (saved.library) state.library = saved.library;
+    if (saved.equipment) state.equipment = saved.equipment;
     if (saved.progress) state.progress = saved.progress;
     if (saved.theme) state.theme = saved.theme;
-    if (saved.profile) state.profile = saved.profile;
+    if (saved.palette) state.palette = saved.palette;
+    if (saved.profile) state.profile = migrateProfile(saved.profile);
     if (saved.onboardingDone) state.onboardingDone = saved.onboardingDone;
   }
   if (state.onboardingDone) replaceHistory();

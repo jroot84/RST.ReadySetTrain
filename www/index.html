@@ -743,20 +743,87 @@ function saveData() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Cross-app data (RSF — Ready Set Fuel)                                 */
+/* RSF shares this browser's jroot84.github.io origin, so its data      */
+/* lives alongside ours under "rsf:*" localStorage keys. We can read    */
+/* and write it directly — no network round-trip or account needed —   */
+/* which lets a single backup file carry both apps' data and restore    */
+/* either (or both) of them.                                            */
+/* ------------------------------------------------------------------ */
+const RSF_PREFIX = "rsf:";
+function readRSFDataRaw() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf(RSF_PREFIX) === 0) keys.push(k);
+    }
+    if (!keys.length) return null;
+    const entries = {};
+    let settings = null, favorites = null, profile = null, appearance = null, streak = null;
+    keys.forEach((k) => {
+      const rest = k.slice(RSF_PREFIX.length);
+      let val;
+      try { val = JSON.parse(localStorage.getItem(k)); } catch (e) { return; }
+      if (rest === "settings") settings = val;
+      else if (rest === "favorites") favorites = val;
+      else if (rest === "profile") profile = val;
+      else if (rest === "appearance") appearance = val;
+      else if (rest === "streak") streak = val;
+      else if (rest.indexOf("entries:") === 0) entries[rest.slice("entries:".length)] = val;
+    });
+    return { settings, entries, favorites, profile, appearance, streak };
+  } catch (e) { return null; }
+}
+function writeRSFDataRaw(data) {
+  if (!data) return;
+  try {
+    // Clear existing RSF journal entries first so dates that aren't in the
+    // imported file don't linger alongside the restored ones.
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf(RSF_PREFIX + "entries:") === 0) toRemove.push(k);
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+    if (data.settings) localStorage.setItem(RSF_PREFIX + "settings", JSON.stringify(data.settings));
+    if (data.favorites) localStorage.setItem(RSF_PREFIX + "favorites", JSON.stringify(data.favorites));
+    if (data.profile) localStorage.setItem(RSF_PREFIX + "profile", JSON.stringify(data.profile));
+    if (data.appearance) localStorage.setItem(RSF_PREFIX + "appearance", JSON.stringify(data.appearance));
+    if (data.streak) localStorage.setItem(RSF_PREFIX + "streak", JSON.stringify(data.streak));
+    if (data.entries) {
+      Object.keys(data.entries).forEach((dateStr) => {
+        localStorage.setItem(RSF_PREFIX + "entries:" + dateStr, JSON.stringify(data.entries[dateStr]));
+      });
+    }
+  } catch (e) { console.error("Failed to write RSF data", e); }
+}
+
+/* ------------------------------------------------------------------ */
 /* Backup export / import                                               */
 /* ------------------------------------------------------------------ */
 async function exportBackup() {
-  const payload = {
-    app: "RST", version: 1, exportedAt: new Date().toISOString(),
+  const nowIso = new Date().toISOString();
+  const rstPayload = {
+    app: "RST", version: 1, exportedAt: nowIso,
     routine: state.routine, library: state.library, equipment: state.equipment, progress: state.progress,
     theme: state.theme, palette: state.palette, profile: state.profile, onboardingDone: state.onboardingDone,
     bestStreak: state.bestStreak, sessionRotate: state.sessionRotate,
   };
-  const stamp = new Date().toISOString().slice(0, 10);
-  const baseName = "rst-backup-" + stamp;
+  // Best-effort: if RSF has ever been opened on this device, fold its data
+  // into the same backup file so one export restores both apps.
+  const rsfRaw = readRSFDataRaw();
+  const rsfPayload = rsfRaw ? Object.assign({ app: "RSF", version: 1, exportedAt: nowIso }, rsfRaw) : null;
+
+  const payload = { app: "RSF+RST", version: 1, exportedAt: nowIso, rst: rstPayload, rsf: rsfPayload };
+
+  const stamp = nowIso.slice(0, 10);
+  const baseName = "readyset-backup-" + stamp;
   const json = JSON.stringify(payload, null, 2);
-  const shareTitle = "RST Backup";
-  const shareText = "RST backup — " + stamp;
+  const shareTitle = rsfPayload ? "RST + RSF Backup" : "RST Backup";
+  const shareText = rsfPayload
+    ? "Ready Set Train + Ready Set Fuel backup — " + stamp
+    : "RST backup — " + stamp;
 
   // Prefer the native share sheet — it's the only way a web app can hand a
   // file straight to another app (OneDrive, Google Drive, Files, etc.)
@@ -796,9 +863,28 @@ async function exportBackup() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function looksLikeBackup(data) {
+function looksLikeRSTBackup(data) {
   return !!(data && typeof data === "object" &&
     ("routine" in data || "library" in data || "progress" in data || "profile" in data));
+}
+function looksLikeRSFBackup(data) {
+  return !!(data && typeof data === "object" &&
+    ("entries" in data || "settings" in data || "favorites" in data));
+}
+// Recognizes an RST-only backup, an RSF-only backup, or a combined
+// RSF+RST file, and normalizes any of them into { rst, rsf } — either of
+// which may be null if that app's data wasn't in the file.
+function normalizeBackupFile(data) {
+  if (!data || typeof data !== "object") return null;
+  if (("rst" in data) || ("rsf" in data)) {
+    const rst = data.rst && looksLikeRSTBackup(data.rst) ? data.rst : null;
+    const rsf = data.rsf && looksLikeRSFBackup(data.rsf) ? data.rsf : null;
+    if (!rst && !rsf) return null;
+    return { rst, rsf };
+  }
+  if (looksLikeRSTBackup(data)) return { rst: data, rsf: null };
+  if (looksLikeRSFBackup(data)) return { rst: null, rsf: data };
+  return null;
 }
 
 function handleImportFile(file) {
@@ -807,14 +893,15 @@ function handleImportFile(file) {
   reader.onload = () => {
     try {
       const parsed = JSON.parse(reader.result);
-      if (!looksLikeBackup(parsed)) {
-        state.importError = "That file doesn't look like an RST backup.";
+      const normalized = normalizeBackupFile(parsed);
+      if (!normalized) {
+        state.importError = "That file doesn't look like an RST or RSF backup.";
         state.pendingImport = null;
       } else {
-        state.pendingImport = { fileName: file.name, data: parsed };
+        state.pendingImport = { fileName: file.name, rst: normalized.rst, rsf: normalized.rsf };
       }
     } catch (e) {
-      state.importError = "Couldn't read that file — make sure it's an RST backup (.json or .txt).";
+      state.importError = "Couldn't read that file — make sure it's a Ready Set backup (.json or .txt).";
       state.pendingImport = null;
     }
     render();
@@ -837,21 +924,31 @@ function migrateProfile(p) {
 }
 
 function applyPendingImport() {
-  const data = state.pendingImport && state.pendingImport.data;
-  if (!data) return;
-  if (data.routine) state.routine = data.routine;
-  if (data.library) state.library = data.library;
-  if (data.equipment) state.equipment = data.equipment;
-  if (data.progress) state.progress = data.progress;
-  if (data.theme) state.theme = data.theme;
-  if (data.palette) state.palette = data.palette;
-  if (data.profile) state.profile = migrateProfile(data.profile);
-  if (typeof data.onboardingDone === "boolean") state.onboardingDone = data.onboardingDone;
-  if (typeof data.bestStreak === "number") state.bestStreak = data.bestStreak;
-  if (typeof data.sessionRotate === "boolean") state.sessionRotate = data.sessionRotate;
+  const pending = state.pendingImport;
+  if (!pending || (!pending.rst && !pending.rsf)) return;
+  const data = pending.rst;
+  if (data) {
+    if (data.routine) state.routine = data.routine;
+    if (data.library) state.library = data.library;
+    if (data.equipment) state.equipment = data.equipment;
+    if (data.progress) state.progress = data.progress;
+    if (data.theme) state.theme = data.theme;
+    if (data.palette) state.palette = data.palette;
+    if (data.profile) state.profile = migrateProfile(data.profile);
+    if (typeof data.onboardingDone === "boolean") state.onboardingDone = data.onboardingDone;
+    if (typeof data.bestStreak === "number") state.bestStreak = data.bestStreak;
+    if (typeof data.sessionRotate === "boolean") state.sessionRotate = data.sessionRotate;
+    saveData();
+  }
+  if (pending.rsf) {
+    // Pass RSF's portion straight through to its own localStorage keys —
+    // this device's RSF install picks it up next time it's opened.
+    const rsfData = Object.assign({}, pending.rsf);
+    delete rsfData.app; delete rsfData.version; delete rsfData.exportedAt;
+    writeRSFDataRaw(rsfData);
+  }
   state.pendingImport = null;
   state.importError = "";
-  saveData();
   render();
 }
 
@@ -2065,11 +2162,11 @@ function renderSettingsSection(id) {
     html += settingsSectionHeader("Backup");
     html += '<div class="card">';
     html += '<div class="settings-item-row" style="border-top:none;padding-top:0;margin-top:0;">';
-    html += '<div><div class="settings-title">Export backup</div><div class="settings-desc">Shares a backup file with your routine, library, progress, and profile — save it straight to OneDrive, Drive, Files, or any app you choose.</div></div>';
+    html += '<div><div class="settings-title">Export backup</div><div class="settings-desc">Shares a backup file with your routine, library, progress, and profile — plus your RSF (Ready Set Fuel) data if it\'s on this device. Save it straight to OneDrive, Drive, Files, or any app you choose.</div></div>';
     html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="export-backup">'+icon("download",12)+' Export</button>';
     html += '</div>';
     html += '<div class="settings-item-row">';
-    html += '<div><div class="settings-title">Import backup</div><div class="settings-desc">Restores from a previously exported backup file (.json or .txt). Replaces all current data.</div></div>';
+    html += '<div><div class="settings-title">Import backup</div><div class="settings-desc">Restores from a previously exported RST, RSF, or combined backup file (.json or .txt). Replaces all current data.</div></div>';
     html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="trigger-import">'+icon("upload",12)+' Import</button>';
     html += '</div>';
     html += '<input type="file" id="import-file-input" accept="application/json,.json,text/plain,.txt" style="display:none;" />';
@@ -2077,8 +2174,10 @@ function renderSettingsSection(id) {
       html += '<div class="foot-note" style="padding-top:10px;"><span style="color:var(--ember);display:flex;">'+icon("alert",13)+'</span><p style="color:var(--ember-tag);">'+esc(state.importError)+'</p></div>';
     }
     if (state.pendingImport) {
+      const importsRST = !!state.pendingImport.rst, importsRSF = !!state.pendingImport.rsf;
+      const appLabel = (importsRST && importsRSF) ? "RST and RSF" : importsRST ? "RST" : "RSF";
       html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
-      html += '<div class="settings-desc" style="max-width:none;margin-bottom:10px;">Import <strong style="color:var(--chalk);">'+esc(state.pendingImport.fileName)+'</strong>? This replaces all current data on this device.</div>';
+      html += '<div class="settings-desc" style="max-width:none;margin-bottom:10px;">Import <strong style="color:var(--chalk);">'+esc(state.pendingImport.fileName)+'</strong>? This restores '+appLabel+' data'+(importsRST && importsRSF ? " on this device — both apps' data will update" : "")+', replacing what\'s currently here.</div>';
       html += '<div class="form-row-2">';
       html += '<button class="btn-outline" data-action="cancel-import">Cancel</button>';
       html += '<button class="btn-primary" data-action="confirm-import">Import &amp; Replace</button>';

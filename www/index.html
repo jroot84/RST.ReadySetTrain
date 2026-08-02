@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
-<meta name="theme-color" content="#1F6F54">
+<meta name="theme-color" content="#14181C">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RST">
 <style>
@@ -943,6 +943,10 @@ function exById(id) { return state.library.find(e => e.id === id); }
 function applyTheme() {
   document.documentElement.setAttribute("data-theme", state.theme);
   document.documentElement.setAttribute("data-palette", state.palette || "ember");
+  var metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute("content", state.theme === "light" ? "#EEF1F3" : "#14181C");
+  }
 }
 
 /* ------------------------------------------------------------------ */

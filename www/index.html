@@ -1917,7 +1917,7 @@ function renderEditExerciseModal() {
   html += '<div class="modal-list">';
   html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-name" placeholder="Exercise name" value="'+esc(f.name)+'" />';
   html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-muscle" placeholder="Muscle group" value="'+esc(f.muscle)+'" />';
-  html += '<textarea class="text-input" style="margin-bottom:10px;" id="edit-ex-instructions" rows="2" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
+  html += '<textarea class="text-input" style="margin-bottom:10px;min-height:140px;resize:vertical;" id="edit-ex-instructions" rows="7" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
   html += '<div class="form-row-2" style="margin-bottom:10px;">';
   html += '<select class="select-input" id="edit-ex-equipment">'+state.equipment.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
   html += '<select class="select-input" id="edit-ex-category"><option value="strength" '+(f.category==="strength"?"selected":"")+'>Strength</option><option value="cardio" '+(f.category==="cardio"?"selected":"")+'>Cardio</option></select>';

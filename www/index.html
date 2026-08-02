@@ -571,7 +571,7 @@ function seedRoutine() {
 // right after onboarding.
 function blankRoutine() {
   const blank = {};
-  for (let i = 0; i < 7; i++) blank[i] = { label: "Rest Day", type: "strength", blocks: [] };
+  for (let i = 0; i < 7; i++) blank[i] = { label: "Rest Day", type: "strength", isRest: true, blocks: [] };
   return blank;
 }
 
@@ -592,11 +592,11 @@ const ROUTINE_TEMPLATES = [
     label: "Muscle Builder",
     blurb: "4 strength days split by muscle group (push / pull / legs / shoulders), with rest between so muscles recover and grow.",
     build: () => ({
-      0: { label:"Rest Day", type:"strength", blocks:[] },
+      0: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
       1: { label:"Push (Chest / Triceps)", type:"strength", blocks:[blk("pushup",4,8,10), blk("db-floor-press",4,8,10), blk("db-chest-fly",3,10,12), blk("tricep-dips",3,10,12)] },
-      2: { label:"Rest Day", type:"strength", blocks:[] },
+      2: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
       3: { label:"Pull (Back / Biceps)", type:"strength", blocks:[blk("db-rows",4,8,10), blk("pullups",4,6,8), blk("cb-bent-row",3,10,12), blk("cb-bicep-curl",3,10,12)] },
-      4: { label:"Rest Day", type:"strength", blocks:[] },
+      4: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
       5: { label:"Legs", type:"strength", blocks:[blk("db-goblet-squat",4,8,10), blk("db-lunges",3,10,12), blk("leg-lifts",3,12,15), blk("squat",3,12,15)] },
       6: { label:"Shoulders / Arms", type:"strength", blocks:[blk("db-ohp",4,8,10), blk("db-shoulder-fly",3,10,12), blk("cb-upright-row",3,10,12), blk("cb-shrug",3,12,15)] },
     }),
@@ -613,7 +613,7 @@ const ROUTINE_TEMPLATES = [
       3: { label:"Interval Cardio", type:"cardio", blocks:[cardioBlk("jump-rope",600), cardioBlk("walk-jj",300)] },
       4: { label:"Full Body Strength", type:"strength", blocks:[blk("db-goblet-squat",3,10,12), blk("db-floor-press",3,10,12), blk("cb-bent-row",3,10,12)] },
       5: { label:"Brisk Cardio", type:"cardio", blocks:[cardioBlk("walk-jj",1800)] },
-      6: { label:"Rest Day", type:"strength", blocks:[] },
+      6: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
     }),
   },
   {
@@ -626,7 +626,7 @@ const ROUTINE_TEMPLATES = [
       1: { label:"Full Body Strength", type:"strength", blocks:[blk("pushup",3,10,12), blk("squat",3,10,12), blk("db-rows",3,10,12)] },
       2: { label:"Cardio", type:"cardio", blocks:[cardioBlk("cycling",1200)] },
       3: { label:"Full Body Strength", type:"strength", blocks:[blk("db-goblet-squat",3,10,12), blk("cb-bent-row",3,10,12), { id: uid("plank"), exerciseId:"plank", sets:1, durationSec:45, note:"" }] },
-      4: { label:"Rest Day", type:"strength", blocks:[] },
+      4: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
       5: { label:"Cardio", type:"cardio", blocks:[cardioBlk("jump-rope",900)] },
       6: { label:"Full Body Strength", type:"strength", blocks:[blk("db-floor-press",3,10,12), blk("db-lunges",3,10,12), blk("bicycles",3,10,12)] },
     }),
@@ -643,7 +643,7 @@ const ROUTINE_TEMPLATES = [
       3: { label:"Interval Cardio", type:"cardio", blocks:[cardioBlk("jump-rope",1200)] },
       4: { label:"Long Cardio", type:"cardio", blocks:[cardioBlk("running",1800)] },
       5: { label:"Light Strength", type:"strength", blocks:[blk("db-rows",3,12,15), blk("db-lunges",3,12,15), blk("bicycles",3,12,15)] },
-      6: { label:"Rest Day", type:"strength", blocks:[] },
+      6: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
     }),
   },
   {
@@ -652,13 +652,13 @@ const ROUTINE_TEMPLATES = [
     label: "Pure Strength",
     blurb: "3 focused strength days with lower reps, heavier effort, and a full rest day between each session for recovery.",
     build: () => ({
-      0: { label:"Rest Day", type:"strength", blocks:[] },
+      0: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
       1: { label:"Main Lifts A", type:"strength", blocks:[blk("cb-deadlift",4,6,8), blk("db-goblet-squat",4,6,8), blk("pushup",4,8,8)] },
-      2: { label:"Rest Day", type:"strength", blocks:[] },
+      2: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
       3: { label:"Main Lifts B", type:"strength", blocks:[blk("cb-bent-row",4,6,8), blk("db-ohp",4,6,8), blk("pullups",4,6,8)] },
-      4: { label:"Rest Day", type:"strength", blocks:[] },
+      4: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
       5: { label:"Main Lifts C", type:"strength", blocks:[blk("db-floor-press",4,6,8), blk("squat",4,6,8), blk("cb-bicep-curl",3,8,8)] },
-      6: { label:"Rest Day", type:"strength", blocks:[] },
+      6: { label:"Rest Day", type:"strength", isRest:true, blocks:[] },
     }),
   },
 ];
@@ -2507,10 +2507,14 @@ document.addEventListener("click", (e) => {
       }
       day.blocks = [];
       day.isRest = true;
+      day.label = "Rest Day";
       state.confirmingAction = null;
     } else {
       day.type = newType;
       day.isRest = false;
+      if (!day.label || day.label === "Rest Day") {
+        day.label = newType === "cardio" ? "Cardio" : "Strength";
+      }
       state.confirmingAction = null;
     }
     saveData(); render(); return;
@@ -2518,6 +2522,10 @@ document.addEventListener("click", (e) => {
   if (action === "remove-block") {
     const day = state.routine[state.builderDay];
     day.blocks = day.blocks.filter(b => b.id !== t.dataset.blockId);
+    if (day.blocks.length === 0) {
+      day.isRest = true;
+      day.label = "Rest Day";
+    }
     saveData(); render(); return;
   }
   if (action === "move-block") {
@@ -2556,8 +2564,16 @@ document.addEventListener("click", (e) => {
     const ex = exById(t.dataset.exId);
     if (ex) {
       const day = state.routine[state.builderDay];
+      const wasEmpty = day.blocks.length === 0;
       day.isRest = false;
-      if (ex.category === "cardio" || ex.timed) {
+      const isCardioEx = ex.category === "cardio" || ex.timed;
+      if (wasEmpty) {
+        day.type = isCardioEx ? "cardio" : "strength";
+        if (!day.label || day.label === "Rest Day") {
+          day.label = isCardioEx ? "Cardio" : "Strength";
+        }
+      }
+      if (isCardioEx) {
         const dur = TIMED_EXERCISE_DEFAULTS[ex.id] || (ex.category === "cardio" ? 900 : 30);
         day.blocks.push(cardioBlk(ex.id, dur));
       } else {

@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
-<meta name="theme-color" content="#14181C">
+<meta name="theme-color" content="#1F6F54">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RST">
 <style>
@@ -83,6 +83,7 @@
   .day-tag { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; }
   .day-tag.cardio { background: var(--cyan-dim); color: var(--cyan-tag); }
   .day-tag.strength { background: var(--ember-dim); color: var(--ember-tag); }
+  .day-tag.rest { background: var(--bg800); color: var(--chalk-dim); border: 1px solid var(--line); }
 
   .block-row { border-radius:8px; border:1px solid var(--line); background: var(--bg800); transition: background 0.15s, border-color 0.15s; margin-bottom:10px; }
   .block-row.done { background: var(--ember-wash); border-color: var(--ember); }
@@ -113,6 +114,8 @@
   .cal-day.today { border-color: var(--line); }
   .cal-day.selected { background: var(--ember-wash); border-color: var(--ember); }
   .cal-dot { width:6px; height:6px; border-radius:50%; margin-top:3px; }
+  .cal-dot.outline { background:transparent !important; border:1.5px solid; box-sizing:border-box; }
+  .cal-dot.rest-mark { width:8px; height:2px; border-radius:1px; margin-top:6px; }
 
   /* day tabs (builder) */
   .day-tabs { display:grid; grid-template-columns: repeat(7,1fr); gap:4px; }
@@ -125,6 +128,7 @@
   .type-toggle button { padding:7px 10px; font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.06em; display:flex; align-items:center; gap:4px; color: var(--chalk-dim); }
   .type-toggle button.active.strength { background: var(--ember-dim); color: var(--chalk); }
   .type-toggle button.active.cardio { background: var(--cyan-dim); color: var(--chalk); }
+  .type-toggle button.active.rest { background: var(--bg800); color: var(--chalk); }
 
   .builder-block { border-radius:8px; padding:12px; background: var(--bg800); border:1px solid var(--line); margin-bottom:10px; }
   .builder-block-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
@@ -234,6 +238,13 @@ const ICON = {
   upload: '<path d="M12 21V9m0 0l-4 4m4-4l4 4M4 3h16"/>',
   eye: '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M3 3l18 18M10.6 10.6a3 3 0 004.2 4.2M9.9 4.2A11 11 0 0122 12s-1.3 2.3-3.5 4.1M6.3 6.3C4 7.9 2 12 2 12s2.1 4.2 6 6.1"/>',
+  zap: '<path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/>',
+  arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  arrowDown: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+  lock: '<rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>',
+  play: '<path d="M6 4l14 8-14 8V4z"/>',
+  pause: '<rect x="5" y="4" width="5" height="16"/><rect x="14" y="4" width="5" height="16"/>',
 };
 function icon(name, size, extraAttrs) {
   size = size || 16;
@@ -245,7 +256,7 @@ function icon(name, size, extraAttrs) {
 /* ------------------------------------------------------------------ */
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const DAY_SHORT = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
-const DEFAULT_EQUIPMENT = ["Bodyweight","Dumbbells","Curl Bar","None"];
+const DEFAULT_EQUIPMENT = ["Bodyweight","Dumbbells","Curl Bar","Resistance Band","Kettlebell","Pull-up Bar","Bench / Chair","Jump Rope","None"];
 
 const SEED_LIBRARY = [
   { id:"pushup", name:"Push-ups", equipment:"Bodyweight", category:"strength", muscle:"Chest / Triceps",
@@ -280,9 +291,9 @@ const SEED_LIBRARY = [
     instructions:"From standing, drop into a squat, kick your feet back into a plank, do a push-up, jump your feet back to your hands, then explode up into a jump." },
   { id:"mtn-climbers", name:"Mountain Climbers", equipment:"Bodyweight", category:"strength", muscle:"Core",
     instructions:"Start in a high plank. Drive one knee toward your chest, quickly switch legs, and keep alternating at a controlled, steady pace while keeping your hips low." },
-  { id:"pullups", name:"Pull-ups", equipment:"Bodyweight", category:"strength", muscle:"Back",
+  { id:"pullups", name:"Pull-ups", equipment:"Pull-up Bar", category:"strength", muscle:"Back",
     instructions:"Hang from a bar with an overhand grip, hands just wider than shoulders. Pull your chin above the bar by driving your elbows down, then lower fully with control." },
-  { id:"tricep-dips", name:"Tricep Dips", equipment:"Bodyweight", category:"strength", muscle:"Triceps",
+  { id:"tricep-dips", name:"Tricep Dips", equipment:"Bench / Chair", category:"strength", muscle:"Triceps",
     instructions:"Hands on the edge of a sturdy chair or bench, legs extended, fingers pointing forward. Lower your body by bending your elbows to about 90°, then press back up." },
   { id:"db-chest-fly", name:"DB Chest Fly", equipment:"Dumbbells", category:"strength", muscle:"Chest",
     instructions:"Lie on your back with a slight bend in your elbows, dumbbells above your chest. Lower the weights out to the sides in a wide arc until you feel a stretch, then bring them back together over your chest." },
@@ -292,13 +303,234 @@ const SEED_LIBRARY = [
     instructions:"Stand tall holding the bar in front of your thighs. Shrug your shoulders straight up toward your ears, hold briefly, then lower slowly without rolling your shoulders." },
   { id:"cb-upright-row", name:"Curl Bar Upright Row", equipment:"Curl Bar", category:"strength", muscle:"Shoulders",
     instructions:"Hold the bar with hands close together in front of your thighs. Pull it straight up toward your chin, leading with your elbows, then lower with control." },
-  { id:"jump-rope", name:"Jump Rope", equipment:"None", category:"cardio", muscle:"Full Body",
+  { id:"jump-rope", name:"Jump Rope", equipment:"Jump Rope", category:"cardio", muscle:"Full Body",
     instructions:"Keep a light, steady bounce on the balls of your feet, elbows close to your body, turning the rope mostly with your wrists. Start slow and build a steady rhythm." },
   { id:"cycling", name:"Cycling", equipment:"None", category:"cardio", muscle:"Legs",
     instructions:"Ride at a pace that keeps your heart rate elevated but sustainable for the full duration, keeping a smooth, even pedal stroke." },
   { id:"running", name:"Running", equipment:"None", category:"cardio", muscle:"Full Body",
     instructions:"Keep a relaxed, upright posture and a pace you can hold for the whole duration. Land lightly and let your stride shorten if you're tired rather than forcing a longer step." },
+
+  // --- Bodyweight ---
+  { id:"wall-sit", name:"Wall Sit", equipment:"Bodyweight", category:"strength", muscle:"Legs / Quads",
+    instructions:"Slide your back down a wall until your knees are at a 90° angle and hold, keeping your knees over your ankles." },
+  { id:"glute-bridge", name:"Glute Bridge", equipment:"Bodyweight", category:"strength", muscle:"Glutes",
+    instructions:"Lie on your back with knees bent, feet flat, and lift your hips until your body forms a straight line from shoulders to knees." },
+  { id:"superman", name:"Superman", equipment:"Bodyweight", category:"strength", muscle:"Lower Back",
+    instructions:"Lie face down and simultaneously lift your arms, chest, and legs off the floor, squeezing your lower back and glutes." },
+  { id:"bird-dog", name:"Bird Dog", equipment:"Bodyweight", category:"strength", muscle:"Core / Back",
+    instructions:"From all fours, extend one arm and the opposite leg straight out, keeping your hips level, then switch sides." },
+  { id:"side-plank", name:"Side Plank", equipment:"Bodyweight", category:"strength", muscle:"Obliques",
+    instructions:"Prop yourself up on one forearm with your body in a straight line, hips lifted off the floor, and hold." },
+  { id:"russian-twists", name:"Russian Twists", equipment:"Bodyweight", category:"strength", muscle:"Core / Obliques",
+    instructions:"Sit with knees bent and lean back slightly, then rotate your torso side to side, tapping the floor near your hip each time." },
+  { id:"reverse-lunge", name:"Reverse Lunges", equipment:"Bodyweight", category:"strength", muscle:"Legs / Glutes",
+    instructions:"Step one leg back and lower until both knees are near 90°, then push through your front heel to return to standing." },
+  { id:"lateral-lunge", name:"Lateral Lunges", equipment:"Bodyweight", category:"strength", muscle:"Legs / Inner Thighs",
+    instructions:"Step wide to one side and bend that knee while keeping the other leg straight, then push back to center." },
+  { id:"single-leg-glute-bridge", name:"Single-Leg Glute Bridge", equipment:"Bodyweight", category:"strength", muscle:"Glutes",
+    instructions:"Perform a glute bridge with one foot lifted off the floor, keeping hips level throughout." },
+  { id:"calf-raise", name:"Calf Raises", equipment:"Bodyweight", category:"strength", muscle:"Calves",
+    instructions:"Rise up onto the balls of your feet as high as you can, then lower slowly under control." },
+  { id:"flutter-kicks", name:"Flutter Kicks", equipment:"Bodyweight", category:"strength", muscle:"Core",
+    instructions:"Lie on your back with legs extended and lifted slightly, and alternate small up-and-down kicks." },
+  { id:"v-ups", name:"V-Ups", equipment:"Bodyweight", category:"strength", muscle:"Core",
+    instructions:"Lie flat and simultaneously lift your legs and torso to touch your hands to your toes, forming a V shape." },
+  { id:"hollow-body-hold", name:"Hollow Body Hold", equipment:"Bodyweight", category:"strength", muscle:"Core",
+    instructions:"Lie on your back, press your lower back into the floor, and lift your shoulders and legs slightly, holding the position." },
+  { id:"diamond-pushup", name:"Diamond Push-ups", equipment:"Bodyweight", category:"strength", muscle:"Triceps / Chest",
+    instructions:"Form a diamond shape with your thumbs and index fingers under your chest and perform a push-up, keeping elbows close to your body." },
+  { id:"wide-pushup", name:"Wide Push-ups", equipment:"Bodyweight", category:"strength", muscle:"Chest",
+    instructions:"Place your hands wider than shoulder-width and perform a push-up to emphasize the chest." },
+  { id:"pike-pushup", name:"Pike Push-ups", equipment:"Bodyweight", category:"strength", muscle:"Shoulders",
+    instructions:"From a downward-dog position with hips high, bend your elbows to lower your head toward the floor, then press back up." },
+  { id:"bear-crawl", name:"Bear Crawl", equipment:"Bodyweight", category:"strength", muscle:"Full Body",
+    instructions:"From all fours with knees hovering just off the ground, crawl forward moving opposite hand and foot together." },
+  { id:"crab-walk", name:"Crab Walk", equipment:"Bodyweight", category:"strength", muscle:"Triceps / Full Body",
+    instructions:"Sit with hands behind you and hips lifted, then walk forward or sideways on your hands and feet." },
+  { id:"inchworm", name:"Inchworm", equipment:"Bodyweight", category:"strength", muscle:"Hamstrings / Full Body",
+    instructions:"From standing, bend and walk your hands out to a plank, then walk your feet up to meet your hands." },
+  { id:"donkey-kicks", name:"Donkey Kicks", equipment:"Bodyweight", category:"strength", muscle:"Glutes",
+    instructions:"From all fours, kick one leg up and back keeping the knee bent, squeezing the glute at the top." },
+  { id:"fire-hydrants", name:"Fire Hydrants", equipment:"Bodyweight", category:"strength", muscle:"Glutes",
+    instructions:"From all fours, lift one bent knee out to the side, keeping your hips square, then lower with control." },
+  { id:"squat-jump", name:"Squat Jumps", equipment:"Bodyweight", category:"strength", muscle:"Legs / Cardio",
+    instructions:"Lower into a squat, then explode upward into a jump, landing softly back into the squat position." },
+  { id:"tuck-jump", name:"Tuck Jumps", equipment:"Bodyweight", category:"strength", muscle:"Legs / Cardio",
+    instructions:"Jump straight up, driving your knees toward your chest, and land softly with bent knees." },
+  { id:"spiderman-pushup", name:"Spiderman Push-ups", equipment:"Bodyweight", category:"strength", muscle:"Core / Chest",
+    instructions:"As you lower into a push-up, bring one knee toward the same-side elbow, alternating sides each rep." },
+  { id:"dead-bug", name:"Dead Bug", equipment:"Bodyweight", category:"strength", muscle:"Core",
+    instructions:"Lie on your back with arms up and knees bent at 90°, then slowly extend the opposite arm and leg toward the floor without arching your back." },
+  { id:"plank-updown", name:"Plank Up-Downs", equipment:"Bodyweight", category:"strength", muscle:"Core / Chest",
+    instructions:"Starting in a forearm plank, push up to a high plank one arm at a time, then lower back down one arm at a time." },
+  { id:"plank-shoulder-tap", name:"Plank Shoulder Taps", equipment:"Bodyweight", category:"strength", muscle:"Core / Shoulders",
+    instructions:"In a high plank, tap one hand to the opposite shoulder while keeping your hips as still as possible, alternating sides." },
+  { id:"broad-jump", name:"Broad Jumps", equipment:"Bodyweight", category:"strength", muscle:"Legs / Power",
+    instructions:"From standing, swing your arms and jump forward as far as you can, landing softly with bent knees." },
+
+  // --- Dumbbells ---
+  { id:"db-bicep-curl", name:"DB Bicep Curl", equipment:"Dumbbells", category:"strength", muscle:"Biceps",
+    instructions:"Curl the dumbbells toward your shoulders, keeping your elbows close to your sides, then lower with control." },
+  { id:"db-hammer-curl", name:"DB Hammer Curl", equipment:"Dumbbells", category:"strength", muscle:"Biceps / Forearms",
+    instructions:"Curl the dumbbells with palms facing each other the whole way up, then lower slowly." },
+  { id:"db-tricep-kickback", name:"DB Tricep Kickback", equipment:"Dumbbells", category:"strength", muscle:"Triceps",
+    instructions:"Hinge forward with a flat back and extend your arm straight behind you, squeezing the triceps, then return with control." },
+  { id:"db-skull-crusher", name:"DB Skull Crushers", equipment:"Dumbbells", category:"strength", muscle:"Triceps",
+    instructions:"Lying down with dumbbells extended above your chest, bend your elbows to lower the weights toward your forehead, then extend back up." },
+  { id:"db-front-raise", name:"DB Front Raise", equipment:"Dumbbells", category:"strength", muscle:"Shoulders",
+    instructions:"Raise the dumbbells straight in front of you to shoulder height, keeping a slight bend in your elbows, then lower slowly." },
+  { id:"db-reverse-fly", name:"DB Reverse Fly", equipment:"Dumbbells", category:"strength", muscle:"Shoulders / Upper Back",
+    instructions:"Hinge forward with a flat back and raise the dumbbells out to your sides, squeezing your shoulder blades together." },
+  { id:"db-romanian-deadlift", name:"DB Romanian Deadlift", equipment:"Dumbbells", category:"strength", muscle:"Hamstrings / Glutes",
+    instructions:"Keeping a slight knee bend and flat back, hinge at your hips to lower the dumbbells along your legs, then drive your hips forward to stand." },
+  { id:"db-renegade-row", name:"DB Renegade Row", equipment:"Dumbbells", category:"strength", muscle:"Back / Core",
+    instructions:"From a plank with hands on dumbbells, row one dumbbell up to your ribcage while stabilizing your core, then switch sides." },
+  { id:"db-thruster", name:"DB Thruster", equipment:"Dumbbells", category:"strength", muscle:"Full Body",
+    instructions:"Squat down holding dumbbells at your shoulders, then drive up and press the weights overhead as you stand." },
+  { id:"db-farmers-carry", name:"DB Farmer's Carry", equipment:"Dumbbells", category:"strength", muscle:"Full Body / Grip",
+    instructions:"Hold a heavy dumbbell in each hand and walk with your shoulders back and core braced for a set distance or time." },
+  { id:"db-squat-to-press", name:"DB Squat to Press", equipment:"Dumbbells", category:"strength", muscle:"Full Body",
+    instructions:"Perform a squat holding dumbbells at your shoulders, then press them overhead as you stand up." },
+  { id:"db-sumo-squat", name:"DB Sumo Squat", equipment:"Dumbbells", category:"strength", muscle:"Legs / Glutes / Inner Thighs",
+    instructions:"With feet wide and toes turned out, hold a dumbbell with both hands and squat down between your legs, then stand." },
+  { id:"db-calf-raise", name:"DB Calf Raise", equipment:"Dumbbells", category:"strength", muscle:"Calves",
+    instructions:"Holding dumbbells at your sides, rise onto the balls of your feet, then lower slowly under control." },
+  { id:"db-concentration-curl", name:"DB Concentration Curl", equipment:"Dumbbells", category:"strength", muscle:"Biceps",
+    instructions:"Seated, brace your elbow against your inner thigh and curl the dumbbell up slowly, focusing on the bicep." },
+  { id:"db-pullover", name:"DB Pullover", equipment:"Dumbbells", category:"strength", muscle:"Chest / Lats",
+    instructions:"Lying on your back, hold one dumbbell with both hands above your chest and lower it back behind your head, then pull it back over." },
+  { id:"db-woodchopper", name:"DB Woodchopper", equipment:"Dumbbells", category:"strength", muscle:"Core / Obliques",
+    instructions:"Holding a dumbbell with both hands, rotate from high on one side to low on the opposite side in a chopping motion." },
+  { id:"db-arnold-press", name:"DB Arnold Press", equipment:"Dumbbells", category:"strength", muscle:"Shoulders",
+    instructions:"Start with palms facing you at shoulder height, then rotate and press the dumbbells overhead until palms face forward." },
+
+  // --- Resistance Band ---
+  { id:"band-pull-apart", name:"Band Pull-Apart", equipment:"Resistance Band", category:"strength", muscle:"Shoulders / Upper Back",
+    instructions:"Hold the band with both hands in front of you and pull it apart by squeezing your shoulder blades together, then return slowly." },
+  { id:"band-bicep-curl", name:"Band Bicep Curl", equipment:"Resistance Band", category:"strength", muscle:"Biceps",
+    instructions:"Stand on the band and curl the handles toward your shoulders, keeping elbows tucked in." },
+  { id:"band-squat", name:"Band Squat", equipment:"Resistance Band", category:"strength", muscle:"Legs / Glutes",
+    instructions:"With the band looped above your knees or under your feet and held at your shoulders, squat down and drive back up." },
+  { id:"band-lateral-walk", name:"Band Lateral Walk", equipment:"Resistance Band", category:"strength", muscle:"Glutes / Hips",
+    instructions:"With the band looped around your legs above the knees, take small steps sideways while staying in a slight squat." },
+  { id:"band-row", name:"Band Row", equipment:"Resistance Band", category:"strength", muscle:"Back",
+    instructions:"Anchor the band in front of you and pull the handles toward your ribs, squeezing your shoulder blades together." },
+  { id:"band-overhead-press", name:"Band Overhead Press", equipment:"Resistance Band", category:"strength", muscle:"Shoulders",
+    instructions:"Stand on the band and press the handles straight overhead, then lower with control." },
+  { id:"band-tricep-pushdown", name:"Band Tricep Pushdown", equipment:"Resistance Band", category:"strength", muscle:"Triceps",
+    instructions:"Anchor the band above you and push the handle down until your arm is straight, keeping your elbow tucked." },
+  { id:"band-glute-kickback", name:"Band Glute Kickback", equipment:"Resistance Band", category:"strength", muscle:"Glutes",
+    instructions:"With the band around your ankles, kick one leg straight back and squeeze your glute, then return with control." },
+  { id:"band-chest-press", name:"Band Chest Press", equipment:"Resistance Band", category:"strength", muscle:"Chest",
+    instructions:"Anchor the band behind you and press the handles forward at chest height until your arms are extended." },
+  { id:"band-deadlift", name:"Band Deadlift", equipment:"Resistance Band", category:"strength", muscle:"Hamstrings / Glutes / Back",
+    instructions:"Stand on the band with feet hip-width apart and hinge at your hips to lower the handles, then drive your hips forward to stand tall." },
+
+  // --- Kettlebell ---
+  { id:"kb-swing", name:"Kettlebell Swing", equipment:"Kettlebell", category:"strength", muscle:"Full Body / Glutes",
+    instructions:"Hinge at your hips to swing the kettlebell between your legs, then drive your hips forward to swing it to chest height." },
+  { id:"kb-goblet-squat", name:"Kettlebell Goblet Squat", equipment:"Kettlebell", category:"strength", muscle:"Legs / Glutes",
+    instructions:"Hold the kettlebell at your chest and squat down between your legs, keeping your chest tall, then stand back up." },
+  { id:"kb-deadlift", name:"Kettlebell Deadlift", equipment:"Kettlebell", category:"strength", muscle:"Hamstrings / Glutes / Back",
+    instructions:"With the kettlebell between your feet, hinge down to grip it with a flat back, then drive through your heels to stand." },
+  { id:"kb-clean-press", name:"Kettlebell Clean and Press", equipment:"Kettlebell", category:"strength", muscle:"Full Body",
+    instructions:"Swing the kettlebell up to your shoulder in one motion, then press it overhead, lowering with control between reps." },
+  { id:"kb-halo", name:"Kettlebell Halo", equipment:"Kettlebell", category:"strength", muscle:"Shoulders / Core",
+    instructions:"Hold the kettlebell by the horns at chest height and circle it around your head, keeping your core braced." },
+  { id:"kb-row", name:"Kettlebell Row", equipment:"Kettlebell", category:"strength", muscle:"Back",
+    instructions:"Hinge forward with a flat back and row the kettlebell up to your ribs, squeezing your shoulder blade, then lower with control." },
+  { id:"kb-figure8", name:"Kettlebell Figure 8", equipment:"Kettlebell", category:"strength", muscle:"Core / Full Body",
+    instructions:"Standing with knees soft, pass the kettlebell around and between your legs in a figure-8 pattern." },
+
+  // --- Pull-up Bar ---
+  { id:"chinups", name:"Chin-ups", equipment:"Pull-up Bar", category:"strength", muscle:"Back / Biceps",
+    instructions:"Hang from the bar with palms facing you and pull yourself up until your chin clears the bar, then lower with control." },
+  { id:"hanging-leg-raise", name:"Hanging Leg Raises", equipment:"Pull-up Bar", category:"strength", muscle:"Core",
+    instructions:"Hang from the bar and raise your straight legs up in front of you, then lower slowly without swinging." },
+  { id:"hanging-knee-raise", name:"Hanging Knee Raises", equipment:"Pull-up Bar", category:"strength", muscle:"Core",
+    instructions:"Hang from the bar and raise your knees toward your chest, then lower with control." },
+
+  // --- Bench / Chair ---
+  { id:"step-up", name:"Step-ups", equipment:"Bench / Chair", category:"strength", muscle:"Legs / Glutes",
+    instructions:"Step one foot onto a sturdy bench or chair and drive up to standing on it, then step back down and repeat." },
+  { id:"box-jump", name:"Box Jumps", equipment:"Bench / Chair", category:"strength", muscle:"Legs / Power",
+    instructions:"Jump onto a sturdy step or platform, landing softly with bent knees, then step back down." },
+  { id:"incline-pushup", name:"Incline Push-ups", equipment:"Bench / Chair", category:"strength", muscle:"Chest",
+    instructions:"With hands on a sturdy chair or bench, perform a push-up — the incline makes it easier than a floor push-up." },
+  { id:"decline-pushup", name:"Decline Push-ups", equipment:"Bench / Chair", category:"strength", muscle:"Chest / Shoulders",
+    instructions:"With your feet elevated on a chair or bench, perform a push-up to emphasize the upper chest and shoulders." },
+  { id:"bulgarian-split-squat", name:"Bulgarian Split Squat", equipment:"Bench / Chair", category:"strength", muscle:"Legs / Glutes",
+    instructions:"With one foot resting behind you on a chair, lower into a lunge on the front leg, then push back up." },
+  { id:"seated-leg-raise", name:"Seated Leg Raise", equipment:"Bench / Chair", category:"strength", muscle:"Core / Quads",
+    instructions:"Sitting on the edge of a chair, extend one leg straight out and hold, then lower and switch legs." },
+
+  // --- Cardio (no equipment) ---
+  { id:"jumping-jacks", name:"Jumping Jacks", equipment:"None", category:"cardio", muscle:"Full Body",
+    instructions:"Jump your feet out while raising your arms overhead, then jump back to the starting position." },
+  { id:"high-knees", name:"High Knees", equipment:"None", category:"cardio", muscle:"Legs",
+    instructions:"Jog in place, driving your knees up toward your chest as quickly as you can." },
+  { id:"butt-kicks", name:"Butt Kicks", equipment:"None", category:"cardio", muscle:"Hamstrings",
+    instructions:"Jog in place, kicking your heels back to touch your glutes with each step." },
+  { id:"shadow-boxing", name:"Shadow Boxing", equipment:"None", category:"cardio", muscle:"Full Body",
+    instructions:"Throw a continuous combination of punches in the air, staying light on your feet and keeping your core engaged." },
 ];
+
+const INTENSITY_LEVELS = [
+  { id:"light", label:"Light", weight:1 },
+  { id:"moderate", label:"Moderate", weight:2 },
+  { id:"intense", label:"Intense", weight:3 },
+];
+const INTENSITY_DEFAULTS = {
+  "pushup":"moderate", "db-goblet-squat":"moderate", "db-rows":"moderate", "cb-deadlift":"intense",
+  "cb-bicep-curl":"light", "leg-lifts":"light", "db-floor-press":"moderate", "db-lunges":"moderate",
+  "bicycles":"light", "cb-bent-row":"moderate", "db-ohp":"moderate", "plank":"light",
+  "walk-jj":"light", "squat":"moderate", "burpees":"intense", "mtn-climbers":"intense",
+  "pullups":"intense", "tricep-dips":"moderate", "db-chest-fly":"light", "db-shoulder-fly":"light",
+  "cb-shrug":"light", "cb-upright-row":"moderate", "jump-rope":"intense", "cycling":"moderate",
+  "running":"intense",
+  // Bodyweight
+  "wall-sit":"moderate", "glute-bridge":"light", "superman":"light", "bird-dog":"light",
+  "side-plank":"moderate", "russian-twists":"moderate", "reverse-lunge":"moderate", "lateral-lunge":"moderate",
+  "single-leg-glute-bridge":"moderate", "calf-raise":"light", "flutter-kicks":"moderate", "v-ups":"intense",
+  "hollow-body-hold":"intense", "diamond-pushup":"intense", "wide-pushup":"moderate", "pike-pushup":"intense",
+  "bear-crawl":"moderate", "crab-walk":"moderate", "inchworm":"moderate", "donkey-kicks":"light",
+  "fire-hydrants":"light", "squat-jump":"intense", "tuck-jump":"intense", "spiderman-pushup":"intense",
+  "dead-bug":"light", "plank-updown":"intense", "plank-shoulder-tap":"moderate", "broad-jump":"intense",
+  // Dumbbells
+  "db-bicep-curl":"moderate", "db-hammer-curl":"moderate", "db-tricep-kickback":"light", "db-skull-crusher":"moderate",
+  "db-front-raise":"light", "db-reverse-fly":"moderate", "db-romanian-deadlift":"moderate", "db-renegade-row":"intense",
+  "db-thruster":"intense", "db-farmers-carry":"moderate", "db-squat-to-press":"intense", "db-sumo-squat":"moderate",
+  "db-calf-raise":"light", "db-concentration-curl":"light", "db-pullover":"moderate", "db-woodchopper":"moderate",
+  "db-arnold-press":"intense",
+  // Resistance Band
+  "band-pull-apart":"light", "band-bicep-curl":"light", "band-squat":"moderate", "band-lateral-walk":"moderate",
+  "band-row":"moderate", "band-overhead-press":"moderate", "band-tricep-pushdown":"light", "band-glute-kickback":"moderate",
+  "band-chest-press":"moderate", "band-deadlift":"moderate",
+  // Kettlebell
+  "kb-swing":"intense", "kb-goblet-squat":"moderate", "kb-deadlift":"moderate", "kb-clean-press":"intense",
+  "kb-halo":"moderate", "kb-row":"moderate", "kb-figure8":"moderate",
+  // Pull-up Bar
+  "chinups":"intense", "hanging-leg-raise":"intense", "hanging-knee-raise":"moderate",
+  // Bench / Chair
+  "step-up":"moderate", "box-jump":"intense", "incline-pushup":"light", "decline-pushup":"intense",
+  "bulgarian-split-squat":"intense", "seated-leg-raise":"light",
+  // Cardio
+  "jumping-jacks":"light", "high-knees":"moderate", "butt-kicks":"moderate", "shadow-boxing":"moderate",
+};
+SEED_LIBRARY.forEach(ex => { ex.intensity = INTENSITY_DEFAULTS[ex.id] || "moderate"; });
+
+// Exercises that work better tracked by time than sets & reps — isometric
+// holds and locomotion patterns typically programmed as "hold/go for N
+// seconds" rather than a rep count. Cardio-category exercises are always
+// duration-based already, independent of this flag.
+const TIMED_EXERCISE_DEFAULTS = {
+  "plank": 45, "side-plank": 30, "wall-sit": 45, "hollow-body-hold": 20,
+  "superman": 20, "seated-leg-raise": 20, "db-farmers-carry": 40,
+  "bear-crawl": 30, "crab-walk": 30, "mtn-climbers": 30, "flutter-kicks": 30,
+};
+SEED_LIBRARY.forEach(ex => { if (ex.id in TIMED_EXERCISE_DEFAULTS) ex.timed = true; });
+function intensityLabel(id) { const l = INTENSITY_LEVELS.find(x => x.id === id); return l ? l.label : "Moderate"; }
+function intensityWeight(id) { const l = INTENSITY_LEVELS.find(x => x.id === id); return l ? l.weight : 2; }
 
 function uid(prefix){ return prefix + "-" + Math.random().toString(36).slice(2,8); }
 function blk(exerciseId, sets, repsMin, repsMax, note){ return { id: uid(exerciseId), exerciseId, sets, repsMin, repsMax, note: note||"" }; }
@@ -335,11 +567,105 @@ function routineIsEmpty() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Suggested routine templates — one per goal, using only the built-in */
+/* exercise library so they always resolve regardless of a person's    */
+/* custom/hidden exercises. Each "build" is a function so every use    */
+/* gets fresh block ids.                                               */
+/* ------------------------------------------------------------------ */
+const ROUTINE_TEMPLATES = [
+  {
+    id: "tmpl-build-muscle",
+    goalId: "build-muscle",
+    label: "Muscle Builder",
+    blurb: "4 strength days split by muscle group (push / pull / legs / shoulders), with rest between so muscles recover and grow.",
+    build: () => ({
+      0: { label:"Rest Day", type:"strength", blocks:[] },
+      1: { label:"Push (Chest / Triceps)", type:"strength", blocks:[blk("pushup",4,8,10), blk("db-floor-press",4,8,10), blk("db-chest-fly",3,10,12), blk("tricep-dips",3,10,12)] },
+      2: { label:"Rest Day", type:"strength", blocks:[] },
+      3: { label:"Pull (Back / Biceps)", type:"strength", blocks:[blk("db-rows",4,8,10), blk("pullups",4,6,8), blk("cb-bent-row",3,10,12), blk("cb-bicep-curl",3,10,12)] },
+      4: { label:"Rest Day", type:"strength", blocks:[] },
+      5: { label:"Legs", type:"strength", blocks:[blk("db-goblet-squat",4,8,10), blk("db-lunges",3,10,12), blk("leg-lifts",3,12,15), blk("squat",3,12,15)] },
+      6: { label:"Shoulders / Arms", type:"strength", blocks:[blk("db-ohp",4,8,10), blk("db-shoulder-fly",3,10,12), blk("cb-upright-row",3,10,12), blk("cb-shrug",3,12,15)] },
+    }),
+  },
+  {
+    id: "tmpl-lose-weight",
+    goalId: "lose-weight",
+    label: "Fat Loss Circuit",
+    blurb: "4 cardio days to raise weekly activity, plus 2 full-body strength days to preserve muscle while you're in a calorie deficit.",
+    build: () => ({
+      0: { label:"Steady Cardio", type:"cardio", blocks:[cardioBlk("running",1200)] },
+      1: { label:"Full Body Strength", type:"strength", blocks:[blk("pushup",3,10,12), blk("squat",3,10,12), blk("db-rows",3,10,12)] },
+      2: { label:"Cardio", type:"cardio", blocks:[cardioBlk("cycling",1500)] },
+      3: { label:"Interval Cardio", type:"cardio", blocks:[cardioBlk("jump-rope",600), cardioBlk("walk-jj",300)] },
+      4: { label:"Full Body Strength", type:"strength", blocks:[blk("db-goblet-squat",3,10,12), blk("db-floor-press",3,10,12), blk("cb-bent-row",3,10,12)] },
+      5: { label:"Brisk Cardio", type:"cardio", blocks:[cardioBlk("walk-jj",1800)] },
+      6: { label:"Rest Day", type:"strength", blocks:[] },
+    }),
+  },
+  {
+    id: "tmpl-general-fitness",
+    goalId: "general-fitness",
+    label: "Balanced Mix",
+    blurb: "An even split of strength and cardio most weeks, with one true rest day — a solid, sustainable all-around default.",
+    build: () => ({
+      0: { label:"Light Cardio", type:"cardio", blocks:[cardioBlk("walk-jj",900)] },
+      1: { label:"Full Body Strength", type:"strength", blocks:[blk("pushup",3,10,12), blk("squat",3,10,12), blk("db-rows",3,10,12)] },
+      2: { label:"Cardio", type:"cardio", blocks:[cardioBlk("cycling",1200)] },
+      3: { label:"Full Body Strength", type:"strength", blocks:[blk("db-goblet-squat",3,10,12), blk("cb-bent-row",3,10,12), { id: uid("plank"), exerciseId:"plank", sets:1, durationSec:45, note:"" }] },
+      4: { label:"Rest Day", type:"strength", blocks:[] },
+      5: { label:"Cardio", type:"cardio", blocks:[cardioBlk("jump-rope",900)] },
+      6: { label:"Full Body Strength", type:"strength", blocks:[blk("db-floor-press",3,10,12), blk("db-lunges",3,10,12), blk("bicycles",3,10,12)] },
+    }),
+  },
+  {
+    id: "tmpl-endurance",
+    goalId: "endurance",
+    label: "Endurance Builder",
+    blurb: "Cardio most days with mixed durations to build an aerobic base, plus 2 light strength days to keep everything supported.",
+    build: () => ({
+      0: { label:"Long Cardio", type:"cardio", blocks:[cardioBlk("running",1500)] },
+      1: { label:"Cardio", type:"cardio", blocks:[cardioBlk("cycling",1800)] },
+      2: { label:"Light Strength", type:"strength", blocks:[blk("squat",3,12,15), blk("pushup",3,10,12), { id: uid("plank"), exerciseId:"plank", sets:1, durationSec:45, note:"" }] },
+      3: { label:"Interval Cardio", type:"cardio", blocks:[cardioBlk("jump-rope",1200)] },
+      4: { label:"Long Cardio", type:"cardio", blocks:[cardioBlk("running",1800)] },
+      5: { label:"Light Strength", type:"strength", blocks:[blk("db-rows",3,12,15), blk("db-lunges",3,12,15), blk("bicycles",3,12,15)] },
+      6: { label:"Rest Day", type:"strength", blocks:[] },
+    }),
+  },
+  {
+    id: "tmpl-strength",
+    goalId: "strength",
+    label: "Pure Strength",
+    blurb: "3 focused strength days with lower reps, heavier effort, and a full rest day between each session for recovery.",
+    build: () => ({
+      0: { label:"Rest Day", type:"strength", blocks:[] },
+      1: { label:"Main Lifts A", type:"strength", blocks:[blk("cb-deadlift",4,6,8), blk("db-goblet-squat",4,6,8), blk("pushup",4,8,8)] },
+      2: { label:"Rest Day", type:"strength", blocks:[] },
+      3: { label:"Main Lifts B", type:"strength", blocks:[blk("cb-bent-row",4,6,8), blk("db-ohp",4,6,8), blk("pullups",4,6,8)] },
+      4: { label:"Rest Day", type:"strength", blocks:[] },
+      5: { label:"Main Lifts C", type:"strength", blocks:[blk("db-floor-press",4,6,8), blk("squat",4,6,8), blk("cb-bicep-curl",3,8,8)] },
+      6: { label:"Rest Day", type:"strength", blocks:[] },
+    }),
+  },
+];
+function templateStats(routine) {
+  let strength = 0, cardio = 0, rest = 0;
+  Object.values(routine).forEach(d => {
+    if (d.blocks.length === 0) rest++;
+    else if (d.type === "cardio") cardio++;
+    else strength++;
+  });
+  return { strength, cardio, rest };
+}
+
+/* ------------------------------------------------------------------ */
 /* Utilities                                                            */
 /* ------------------------------------------------------------------ */
 function dateKey(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function todayKey(){ return dateKey(new Date()); }
 function fmtDuration(sec){ if(!sec) return ""; if (sec % 60 === 0) return (sec/60)+" min"; return sec+" sec"; }
+function fmtClock(sec){ sec = Math.max(0, Math.round(sec)); const m = Math.floor(sec/60); const s = sec%60; return m+":"+String(s).padStart(2,"0"); }
 function youtubeSearchUrl(name){ return "https://www.youtube.com/results?search_query="+encodeURIComponent("how to "+name+" exercise proper form"); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
@@ -368,7 +694,8 @@ function saveData() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       routine: state.routine, library: state.library, equipment: state.equipment,
       progress: state.progress, theme: state.theme, palette: state.palette,
-      profile: state.profile, onboardingDone: state.onboardingDone,
+      profile: state.profile, onboardingDone: state.onboardingDone, bestStreak: state.bestStreak,
+      sessionRotate: state.sessionRotate,
     }));
   } catch (e) { console.error("Failed to save", e); }
 }
@@ -381,6 +708,7 @@ function exportBackup() {
     app: "RST", version: 1, exportedAt: new Date().toISOString(),
     routine: state.routine, library: state.library, equipment: state.equipment, progress: state.progress,
     theme: state.theme, palette: state.palette, profile: state.profile, onboardingDone: state.onboardingDone,
+    bestStreak: state.bestStreak, sessionRotate: state.sessionRotate,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -430,6 +758,7 @@ function migrateProfile(p) {
     p.goals = (p.goal && typeof p.goal === "string") ? [p.goal] : [];
   }
   delete p.goal;
+  if (!("availableEquipment" in p)) p.availableEquipment = null;
   return p;
 }
 
@@ -444,6 +773,8 @@ function applyPendingImport() {
   if (data.palette) state.palette = data.palette;
   if (data.profile) state.profile = migrateProfile(data.profile);
   if (typeof data.onboardingDone === "boolean") state.onboardingDone = data.onboardingDone;
+  if (typeof data.bestStreak === "number") state.bestStreak = data.bestStreak;
+  if (typeof data.sessionRotate === "boolean") state.sessionRotate = data.sessionRotate;
   state.pendingImport = null;
   state.importError = "";
   saveData();
@@ -506,14 +837,27 @@ const state = {
   libraryEquip: "All",
   showAddExercise: false,
   showManageEquipment: false,
-  addForm: { name:"", equipment:"Bodyweight", category:"strength", muscle:"", instructions:"" },
+  showSuggestedModal: false,
+  confirmUseTemplateId: null,
+  addForm: { name:"", equipment:"Bodyweight", category:"strength", muscle:"", instructions:"", intensity:"moderate", timed:false },
   confirmingAction: null,
   confirmDeleteExId: null,
-  profile: { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[] },
+  editingExId: null,
+  editForm: null,
+  profile: { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[], availableEquipment:null },
+  pickerShowAllEquip: false,
   onboardingDone: false,
   showCheckModal: false,
   pendingImport: null,     // { fileName, data } awaiting confirmation
   importError: "",
+  bestStreak: 0,
+  showBadgeModal: false,
+  // Exercise session
+  sessionActive: false,
+  sessionIndex: 0,
+  sessionSets: {},            // blockId -> sets logged this session
+  sessionTimer: null,         // { blockId, remaining, running, total }
+  sessionRotate: false,       // false = finish each exercise before advancing; true = one set at a time, cycling
 };
 
 function exById(id) { return state.library.find(e => e.id === id); }
@@ -533,7 +877,7 @@ function applyTheme() {
 let applyingPopState = false;
 
 function historySnapshot() {
-  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal };
+  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal, showManageEquipment: state.showManageEquipment, showSuggestedModal: state.showSuggestedModal, showAddExercise: state.showAddExercise, sessionActive: state.sessionActive, showBadgeModal: state.showBadgeModal };
 }
 function pushHistory() {
   if (applyingPopState) return;
@@ -554,24 +898,107 @@ function replaceHistory() {
 function closeModalViaBack() {
   // If the current history entry represents the open modal, let the
   // browser's own back navigation close it (keeps stack consistent).
-  if (history.state && (history.state.pickerOpen || history.state.showCheckModal)) {
+  if (history.state && (history.state.pickerOpen || history.state.showCheckModal || history.state.showManageEquipment || history.state.showSuggestedModal || history.state.showAddExercise || history.state.sessionActive || history.state.showBadgeModal)) {
     history.back();
   } else {
     state.pickerOpen = false;
     state.showCheckModal = false;
+    state.showManageEquipment = false;
+    state.showSuggestedModal = false;
+    state.showAddExercise = false;
+    state.sessionActive = false;
+    state.showBadgeModal = false;
     render();
   }
 }
 window.addEventListener("popstate", (e) => {
   if (!state.onboardingDone) return; // nothing to navigate before setup is done
   applyingPopState = true;
-  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false };
+  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false, showManageEquipment: false, showSuggestedModal: false, showAddExercise: false, sessionActive: false, showBadgeModal: false };
   state.tab = snap.tab;
   state.pickerOpen = !!snap.pickerOpen;
   state.showCheckModal = !!snap.showCheckModal;
+  state.showManageEquipment = !!snap.showManageEquipment;
+  state.showSuggestedModal = !!snap.showSuggestedModal;
+  state.showAddExercise = !!snap.showAddExercise;
+  state.sessionActive = !!snap.sessionActive;
+  state.showBadgeModal = !!snap.showBadgeModal;
+  stopSessionTimer();
   render();
   applyingPopState = false;
 });
+
+/* ------------------------------------------------------------------ */
+/* Streaks, ranks, and badges                                           */
+/* ------------------------------------------------------------------ */
+// A day "counts" toward a streak only if it had exercises scheduled and
+// every one of them was checked off. Rest days (nothing scheduled) are
+// skipped over — they neither build nor break a streak. This uses the
+// *current* routine as a stand-in for what was scheduled on past dates,
+// same simplification the calendar view already relies on.
+function computeCurrentStreak() {
+  const todayKey = dateKey(new Date());
+  let current = 0;
+  const cursor = new Date();
+  for (let i = 0; i < 3650; i++) {
+    const key = dateKey(cursor);
+    const dow = cursor.getDay();
+    const day = state.routine[dow];
+    const scheduled = day && day.blocks.length > 0;
+    if (!scheduled) { cursor.setDate(cursor.getDate() - 1); continue; }
+    const prog = state.progress[key];
+    const doneCount = prog && prog.doneBlockIds ? prog.doneBlockIds.length : 0;
+    const isComplete = doneCount >= day.blocks.length;
+    if (key === todayKey && !isComplete) { cursor.setDate(cursor.getDate() - 1); continue; }
+    if (isComplete) { current++; cursor.setDate(cursor.getDate() - 1); }
+    else break;
+  }
+  return current;
+}
+function totalExercisesCompleted() {
+  return Object.values(state.progress).reduce((sum, p) => sum + ((p && p.doneBlockIds) ? p.doneBlockIds.length : 0), 0);
+}
+// Recomputes the current streak and keeps the persisted best-streak in
+// sync. Cheap enough to call after any action that could change it.
+function refreshStreaks() {
+  const current = computeCurrentStreak();
+  if (current > state.bestStreak) state.bestStreak = current;
+  return current;
+}
+
+const RANK_TIERS = [
+  { id:"rookie", label:"Rookie", min:0 },
+  { id:"committed", label:"Committed", min:25 },
+  { id:"dedicated", label:"Dedicated", min:100 },
+  { id:"elite", label:"Elite", min:250 },
+  { id:"legend", label:"Legend", min:500 },
+];
+function getRank(total) {
+  let rank = RANK_TIERS[0];
+  for (const r of RANK_TIERS) { if (total >= r.min) rank = r; }
+  const idx = RANK_TIERS.indexOf(rank);
+  const next = RANK_TIERS[idx + 1] || null;
+  return { ...rank, next, toNext: next ? next.min - total : 0 };
+}
+
+const BADGES = [
+  { id:"first-workout", label:"First Workout", desc:"Complete your first exercise", earned: s => s.total >= 1 },
+  { id:"streak-3", label:"3-Day Streak", desc:"Complete 3 days in a row", earned: s => s.bestStreak >= 3 },
+  { id:"streak-7", label:"7-Day Streak", desc:"Complete 7 days in a row", earned: s => s.bestStreak >= 7 },
+  { id:"streak-30", label:"30-Day Streak", desc:"Complete 30 days in a row", earned: s => s.bestStreak >= 30 },
+  { id:"streak-100", label:"100-Day Streak", desc:"Complete 100 days in a row", earned: s => s.bestStreak >= 100 },
+  { id:"total-25", label:"25 Exercises", desc:"Complete 25 exercises total", earned: s => s.total >= 25 },
+  { id:"total-100", label:"100 Exercises", desc:"Complete 100 exercises total", earned: s => s.total >= 100 },
+  { id:"total-250", label:"250 Exercises", desc:"Complete 250 exercises total", earned: s => s.total >= 250 },
+  { id:"total-500", label:"500 Exercises", desc:"Complete 500 exercises total", earned: s => s.total >= 500 },
+];
+function getStreakStats() {
+  const current = refreshStreaks();
+  const total = totalExercisesCompleted();
+  const rank = getRank(total);
+  const earned = BADGES.filter(b => b.earned({ current, bestStreak: state.bestStreak, total }));
+  return { current, best: state.bestStreak, total, rank, earned, allBadges: BADGES };
+}
 
 function hasProfileBasics() {
   const p = state.profile;
@@ -599,19 +1026,35 @@ function computeCheck() {
 
   let strengthDays = 0, cardioDays = 0, totalSets = 0, totalCardioMin = 0;
   const dayTypes = [];
+  const dayHasIntense = [];
+  const intensityCounts = { light:0, moderate:0, intense:0 };
+  let strengthIntensitySum = 0, strengthIntensityBlocks = 0;
   for (let i = 0; i < 7; i++) {
     const d = state.routine[i];
-    if (!d || d.blocks.length === 0) { dayTypes.push("rest"); continue; }
+    if (!d || d.blocks.length === 0) { dayTypes.push("rest"); dayHasIntense.push(false); continue; }
     dayTypes.push(d.type);
+    let intenseToday = false;
+    d.blocks.forEach(b => {
+      const ex = exById(b.exerciseId);
+      const lvl = (ex && ex.intensity) || "moderate";
+      intensityCounts[lvl] = (intensityCounts[lvl] || 0) + 1;
+      if (lvl === "intense") intenseToday = true;
+      if (d.type === "strength") { strengthIntensitySum += intensityWeight(lvl); strengthIntensityBlocks++; }
+    });
+    dayHasIntense.push(intenseToday);
     if (d.type === "strength") { strengthDays++; d.blocks.forEach(b => { if (b.sets) totalSets += b.sets; }); }
     if (d.type === "cardio") { cardioDays++; d.blocks.forEach(b => { if (b.durationSec) totalCardioMin += b.durationSec / 60; }); }
   }
   const restDays = dayTypes.filter(t => t === "rest").length;
+  const avgStrengthIntensity = strengthIntensityBlocks ? strengthIntensitySum / strengthIntensityBlocks : 0;
 
   let maxConsecStrength = 0, run = 0;
+  let maxIntenseStreak = 0, intenseRun = 0;
   for (let i = 0; i < 14; i++) {
     if (dayTypes[i % 7] === "strength") { run++; maxConsecStrength = Math.max(maxConsecStrength, run); }
     else run = 0;
+    if (dayHasIntense[i % 7]) { intenseRun++; maxIntenseStreak = Math.max(maxIntenseStreak, intenseRun); }
+    else intenseRun = 0;
   }
 
   const suggestions = [];
@@ -620,11 +1063,12 @@ function computeCheck() {
   if (warning) suggestions.push({ type:"warning", text: warning });
 
   goals.forEach(goal => {
-    suggestions.push(...goalSuggestions(goal, { strengthDays, cardioDays, totalCardioMin }));
+    suggestions.push(...goalSuggestions(goal, { strengthDays, cardioDays, totalCardioMin, avgStrengthIntensity, intensityCounts }));
   });
 
   if (maxConsecStrength >= 3) suggestions.push({ type:"recovery", text:"Your plan has "+maxConsecStrength+" strength days in a row at least once this week. Muscles generally recover better with a rest day or light cardio between strength sessions." });
   if (restDays === 0) suggestions.push({ type:"recovery", text:"Every day currently has something scheduled. Even one true rest day a week helps recovery and lowers injury risk." });
+  if (maxIntenseStreak >= 3) suggestions.push({ type:"intensity", text:"You have "+maxIntenseStreak+" Intense-level days in a row at least once this week. Back-to-back high-intensity sessions raise injury and burnout risk — consider spacing them with a Light or Moderate day, or a rest day." });
 
   if (age) {
     if (age >= 50) suggestions.push({ type:"age", text:"For your age group, low-impact cardio (brisk walking, cycling) and a longer warm-up before strength work are generally easier on joints." });
@@ -639,16 +1083,17 @@ function computeCheck() {
     else bmiNote = "Your BMI falls in the typical range, though BMI is a rough screening number — it doesn't account for muscle mass, body composition, or individual health.";
   }
 
-  return { bmi, bmiCat: bmi ? bmiCategory(bmi) : null, bmiNote, strengthDays, cardioDays, restDays, totalSets, totalCardioMin, suggestions, goals };
+  return { bmi, bmiCat: bmi ? bmiCategory(bmi) : null, bmiNote, strengthDays, cardioDays, restDays, totalSets, totalCardioMin, intensityCounts, suggestions, goals };
 }
 
 function goalSuggestions(goal, ctx) {
-  const { strengthDays, cardioDays, totalCardioMin } = ctx;
+  const { strengthDays, cardioDays, totalCardioMin, avgStrengthIntensity } = ctx;
   const out = [];
   if (goal === "build-muscle") {
     if (strengthDays < 3) out.push({ type:"goal", text:"Your goal is building muscle, but only "+strengthDays+" strength day(s) are scheduled. Three to four strength sessions a week generally gives muscle more stimulus to grow." });
     else out.push({ type:"goal", text:"Your strength frequency ("+strengthDays+" days/week) is solid for building muscle." });
     out.push({ type:"tip", text:"For hypertrophy, most sets in the 8–12 rep range (which your plan already uses) work well. Add weight or reps gradually as sets get easier — that progressive overload is what actually drives growth." });
+    if (strengthDays > 0 && avgStrengthIntensity > 0 && avgStrengthIntensity < 1.7) out.push({ type:"intensity", text:"Most of your scheduled strength exercises are marked Light intensity. For building muscle, working some of them up to Moderate or Intense (heavier resistance, closer to muscular fatigue) tends to drive better results." });
   } else if (goal === "lose-weight") {
     if (cardioDays < 3) out.push({ type:"goal", text:"Your goal is losing weight, but only "+cardioDays+" cardio day(s) are scheduled. Consider adding a session or extending duration to raise weekly activity." });
     else out.push({ type:"goal", text:"Your cardio frequency ("+cardioDays+" days/week) supports a weight-loss goal." });
@@ -661,6 +1106,7 @@ function goalSuggestions(goal, ctx) {
   } else if (goal === "strength") {
     out.push({ type:"tip", text:"For a pure strength focus, lower rep ranges (roughly 4–6) with heavier resistance and longer rest (2–3 min) between sets tend to build strength faster than the 10–12 rep range currently in your plan." });
     if (strengthDays < 3) out.push({ type:"goal", text:"Consider 3 or more strength days a week, prioritizing your main lifts." });
+    if (strengthDays > 0 && avgStrengthIntensity > 0 && avgStrengthIntensity < 2) out.push({ type:"intensity", text:"Your strength exercises currently skew Light-to-Moderate. Pure strength gains generally respond best to Intense-level effort on your main lifts, with full rest between sets." });
   } else {
     if (strengthDays >= 2 && cardioDays >= 2) out.push({ type:"goal", text:"Your plan already balances strength ("+strengthDays+" days) and cardio ("+cardioDays+" days), which fits a general fitness goal well." });
     else out.push({ type:"goal", text:"For general fitness, aim for a mix of both strength and cardio most weeks." });
@@ -686,7 +1132,32 @@ function renderGoalPicker(selectedGoals) {
   return html;
 }
 
-function renderDayTag(type) {
+function ownedEquipmentOrDefault() {
+  // null means "never configured" — treat as owning everything so nothing
+  // is filtered out until the person actually customizes this list.
+  return state.profile.availableEquipment === null ? state.equipment.slice() : state.profile.availableEquipment;
+}
+
+function renderEquipmentOwnedPicker() {
+  const owned = ownedEquipmentOrDefault();
+  let html = '<div style="padding-top:14px;margin-top:4px;border-top:1px solid var(--line);">';
+  html += '<div class="settings-desc" style="max-width:none;margin-bottom:8px;">Equipment you have (used to filter exercises when adding to a routine)</div>';
+  html += '<div class="pill-row" style="flex-wrap:wrap;overflow-x:visible;">';
+  state.equipment.forEach(eq => {
+    const active = owned.includes(eq);
+    html += '<button type="button" class="pill '+(active?"active":"")+'" data-action="toggle-owned-equipment" data-equip="'+esc(eq)+'">'+esc(eq)+'</button>';
+  });
+  html += '</div>';
+  html += '<div style="display:flex;gap:14px;margin-top:8px;">';
+  html += '<button type="button" class="yt-link" style="font-size:11px;" data-action="owned-equipment-all">Select all</button>';
+  html += '<button type="button" class="yt-link" style="font-size:11px;" data-action="owned-equipment-none">Clear all</button>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function renderDayTag(type, isRest) {
+  if (isRest) return '<span class="day-tag rest">'+icon("moon",11)+'Rest Day</span>';
   const isCardio = type === "cardio";
   return '<span class="day-tag '+(isCardio?"cardio":"strength")+'">'+icon(isCardio?"wind":"flame",11)+(isCardio?"Cardio":"Strength")+'</span>';
 }
@@ -761,22 +1232,33 @@ function renderToday() {
   const dKey = todayKey();
   const done = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
   const allDone = day.blocks.length > 0 && day.blocks.every(b => done.includes(b.id));
+  const stats = getStreakStats();
 
-  let html = '<div class="section-label font-mono">'+DAY_NAMES[dow]+'</div>';
+  let html = '<button class="card" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:16px;padding:12px 14px;" data-action="open-badge-modal">';
+  html += '<span style="color:var(--ember);display:flex;flex-shrink:0;">'+icon("flame",26)+'</span>';
+  html += '<div style="min-width:0;flex:1;"><div class="font-display" style="font-size:18px;line-height:1.1;">'+stats.current+' day'+(stats.current===1?"":"s")+'</div><div class="settings-desc" style="max-width:none;margin:2px 0 0;">'+stats.rank.label+' rank · '+stats.total+' completed</div></div>';
+  html += '<span style="color:var(--chalk-dim);display:flex;flex-shrink:0;">'+icon("chevronDown",16)+'</span>';
+  html += '</button>';
+
+  html += '<div class="section-label font-mono">'+DAY_NAMES[dow]+'</div>';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 16px;">';
   html += '<div style="display:flex;align-items:center;gap:8px;min-width:0;">';
   html += '<h2 class="font-display" style="margin:0;font-size:24px;text-transform:uppercase;letter-spacing:0.03em;">'+esc(day.label)+'</h2>';
-  html += renderDayTag(day.type);
+  html += renderDayTag(day.type, day.isRest);
   html += '</div>';
   html += '<button class="info-btn" style="border:1px solid var(--line);border-radius:3px;width:auto;padding:6px 8px;flex-shrink:0;" data-action="open-check-modal" aria-label="Check My Workout">'+icon("activity",16)+'</button>';
   html += '</div>';
 
   if (allDone) {
     html += '<div class="banner">'+icon("flame",16)+' Workout complete. Forged today.</div>';
+  } else if (day.blocks.length > 0) {
+    html += '<button class="btn-primary" style="width:100%;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px;" data-action="open-session">'+icon("zap",15)+' Start Session</button>';
   }
 
-  if (day.blocks.length === 0) {
-    html += '<div class="empty-note">No exercises scheduled — add some in Routine.</div>';
+  if (day.isRest) {
+    html += '<div class="empty-note">'+icon("moon",14)+' Rest day — recovery is part of the plan.</div>';
+  } else if (day.blocks.length === 0) {
+    html += '<div class="empty-note">Nothing scheduled yet — add exercises in Routine, or mark this a rest day.</div>';
   } else {
     day.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), done.includes(b.id)); });
   }
@@ -793,9 +1275,10 @@ function dayCompletion(viewMonth, d) {
   const dow = date.getDay();
   const dayRoutine = state.routine[dow];
   const doneIds = (state.progress[k] && state.progress[k].doneBlockIds) || [];
-  if (!dayRoutine || dayRoutine.blocks.length === 0) return { type: dayRoutine ? dayRoutine.type : null, ratio: 0 };
+  const isRest = !!(dayRoutine && dayRoutine.isRest);
+  if (!dayRoutine || dayRoutine.blocks.length === 0) return { type: dayRoutine ? dayRoutine.type : null, ratio: 0, isRest, hasBlocks: false };
   const ratio = doneIds.filter(id => dayRoutine.blocks.some(b => b.id === id)).length / dayRoutine.blocks.length;
-  return { type: dayRoutine.type, ratio };
+  return { type: dayRoutine.type, ratio, isRest, hasBlocks: true };
 }
 
 function renderCalendar() {
@@ -825,20 +1308,30 @@ function renderCalendar() {
     const isSelected = dateKey(date) === selDKey;
     const isToday = dateKey(date) === todayKey();
     const comp = dayCompletion(vm, d);
-    const dotColor = comp && comp.ratio > 0 ? (comp.type === "cardio" ? "var(--cyan)" : "var(--ember)") : "transparent";
-    const dotOpacity = comp && comp.ratio === 1 ? 1 : (comp && comp.ratio > 0 ? 0.5 : 0);
-    html += '<button class="cal-day '+(isSelected?"selected":"")+' '+(isToday?"today":"")+'" data-action="cal-select" data-day="'+d+'">'+d+
-            '<span class="cal-dot" style="background:'+dotColor+';opacity:'+dotOpacity+'"></span></button>';
+    let dotHtml;
+    if (comp && comp.isRest) {
+      dotHtml = '<span class="cal-dot rest-mark" style="background:var(--chalk-dim);"></span>';
+    } else if (comp && comp.hasBlocks) {
+      const color = comp.type === "cardio" ? "var(--cyan)" : "var(--ember)";
+      if (comp.ratio === 1) dotHtml = '<span class="cal-dot" style="background:'+color+';opacity:1;"></span>';
+      else if (comp.ratio > 0) dotHtml = '<span class="cal-dot" style="background:'+color+';opacity:0.5;"></span>';
+      else dotHtml = '<span class="cal-dot outline" style="border-color:'+color+';"></span>';
+    } else {
+      dotHtml = '<span class="cal-dot" style="background:transparent;"></span>';
+    }
+    html += '<button class="cal-day '+(isSelected?"selected":"")+' '+(isToday?"today":"")+'" data-action="cal-select" data-day="'+d+'">'+d+dotHtml+'</button>';
   });
   html += '</div></div>';
 
   html += '<div class="section-label font-mono">'+state.selectedDate.toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"})+'</div>';
   html += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0 14px;">';
   html += '<h3 class="font-display" style="margin:0;font-size:20px;text-transform:uppercase;letter-spacing:0.03em;">'+esc(selDay.label)+'</h3>';
-  html += renderDayTag(selDay.type);
+  html += renderDayTag(selDay.type, selDay.isRest);
   html += '</div>';
-  if (selDay.blocks.length === 0) {
-    html += '<div class="empty-note">Rest day / nothing scheduled.</div>';
+  if (selDay.isRest) {
+    html += '<div class="empty-note">'+icon("moon",14)+' Rest day — recovery is part of the plan.</div>';
+  } else if (selDay.blocks.length === 0) {
+    html += '<div class="empty-note">Nothing scheduled — add exercises in Routine, or mark this a rest day.</div>';
   } else {
     selDay.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), selDone.includes(b.id)); });
   }
@@ -852,8 +1345,11 @@ function renderBuilder() {
   const day = state.routine[state.builderDay];
   let html = "";
   if (routineIsEmpty()) {
-    html += '<div class="banner" style="align-items:flex-start;">'+icon("flame",16)+
-      '<span>Welcome to RST. Build your week below — pick a day, then tap "Add exercise." Leave any day empty to make it a rest day.</span></div>';
+    html += '<div class="banner" style="align-items:flex-start;flex-direction:column;gap:10px;">'+
+      '<div style="display:flex;gap:10px;align-items:flex-start;">'+icon("flame",16)+
+      '<span>Welcome to RST. Build your week below — pick a day, then tap "Add exercise." Leave any day empty to make it a rest day.</span></div>'+
+      '<button class="btn-outline" style="width:100%;border-color:var(--ember);color:var(--ember);" data-action="open-suggested-modal">'+icon("listChecks",13)+' Or choose a suggested routine</button>'+
+      '</div>';
   }
   html += '<div class="section-label font-mono">Build your week</div>';
   html += '<div class="day-tabs" style="margin-bottom:20px;">';
@@ -868,22 +1364,34 @@ function renderBuilder() {
   html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">';
   html += '<input class="day-label-input font-display" data-action="edit-day-label" value="'+esc(day.label)+'" />';
   html += '<div class="type-toggle">';
-  ["strength","cardio"].forEach(t => {
-    html += '<button class="'+(day.type===t?"active "+t:"")+'" data-action="set-day-type" data-type="'+t+'">'+icon(t==="cardio"?"wind":"flame",11)+t+'</button>';
+  ["strength","cardio","rest"].forEach(t => {
+    const active = t === "rest" ? !!day.isRest : (day.type===t && !day.isRest);
+    const confirming = t === "rest" && state.confirmingAction === "rest-day";
+    const label = confirming ? "confirm?" : t;
+    html += '<button class="'+(active?"active "+t:"")+'" data-action="set-day-type" data-type="'+t+'">'+icon(t==="cardio"?"wind":(t==="rest"?"moon":"flame"),11)+label+'</button>';
   });
   html += '</div></div>';
 
   if (day.blocks.length === 0) {
-    html += '<div class="empty-note" style="margin-bottom:12px;">No exercises yet — add one below.</div>';
+    html += '<div class="empty-note" style="margin-bottom:12px;">'+(day.isRest ? "Set as a rest day — no exercises needed. Add one below if you change your mind." : "No exercises yet — add one below.")+'</div>';
   }
   day.blocks.forEach((b, idx) => {
     const ex = exById(b.exerciseId);
+    const isFirst = idx === 0, isLast = idx === day.blocks.length - 1;
     html += '<div class="builder-block" data-block-id="'+b.id+'">';
     html += '  <div class="builder-block-head"><span class="name">'+(ex?esc(ex.name):"Unknown")+'</span>';
-    html += '  <button data-action="remove-block" data-block-id="'+b.id+'">'+icon("trash",15)+'</button></div>';
+    html += '  <div style="display:flex;gap:2px;align-items:center;">';
+    html += '  <button style="opacity:'+(isFirst?"0.3":"1")+';" '+(isFirst?"disabled":"")+' data-action="move-block" data-dir="up" data-block-id="'+b.id+'" aria-label="Move up">'+icon("arrowUp",14)+'</button>';
+    html += '  <button style="opacity:'+(isLast?"0.3":"1")+';" '+(isLast?"disabled":"")+' data-action="move-block" data-dir="down" data-block-id="'+b.id+'" aria-label="Move down">'+icon("arrowDown",14)+'</button>';
+    html += '  <button data-action="remove-block" data-block-id="'+b.id+'" aria-label="Remove">'+icon("trash",15)+'</button>';
+    html += '  </div></div>';
     if (b.durationSec !== undefined) {
+      const useSeconds = !ex || ex.category !== "cardio";
       html += '  <div class="field-row">'+icon("clock",13)+
-              '<input type="number" class="num-input" min="1" value="'+Math.round(b.durationSec/60)+'" data-action="edit-duration" data-block-id="'+b.id+'" /> minutes</div>';
+              (useSeconds
+                ? '<input type="number" class="num-input" min="5" step="5" value="'+b.durationSec+'" data-action="edit-duration-sec" data-block-id="'+b.id+'" /> seconds'
+                : '<input type="number" class="num-input" min="1" value="'+Math.round(b.durationSec/60)+'" data-action="edit-duration" data-block-id="'+b.id+'" /> minutes')+
+              '</div>';
     } else {
       html += '  <div class="field-row">'+
               '<label>sets <input type="number" class="min-input" value="'+b.sets+'" data-action="edit-field" data-field="sets" data-block-id="'+b.id+'" /></label>'+
@@ -902,13 +1410,30 @@ function renderBuilder() {
   return html;
 }
 
+function pickerEquipmentFilter() {
+  const raw = state.profile.availableEquipment;
+  const active = raw !== null && raw.length < state.equipment.length && !state.pickerShowAllEquip;
+  return { active, owned: raw || state.equipment };
+}
 function renderPicker() {
   const q = state.pickerQuery.toLowerCase();
-  const filtered = state.library.filter(e => !e.hidden && e.name.toLowerCase().includes(q));
+  const ef = pickerEquipmentFilter();
+  const filtered = state.library.filter(e => !e.hidden && (e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q))) && (!ef.active || ef.owned.includes(e.equipment)));
   let html = '<div class="modal-overlay" data-action="close-picker">';
   html += '<div class="modal">';
   html += '<div class="modal-head"><span class="font-display">Choose exercise</span><button data-action="close-picker">'+icon("x",18)+'</button></div>';
-  html += '<div class="search-box"><span style="color:var(--chalk-dim);display:flex;">'+icon("search",14)+'</span><input id="picker-search" placeholder="Search exercises..." value="'+esc(state.pickerQuery)+'" /></div>';
+  html += '<div class="search-box"><span style="color:var(--chalk-dim);display:flex;">'+icon("search",14)+'</span><input id="picker-search" placeholder="Search by name or muscle group..." value="'+esc(state.pickerQuery)+'" /></div>';
+  if (ef.active) {
+    html += '<div style="padding:0 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+    html += '<span class="settings-desc" style="max-width:none;margin:0;">Showing only exercises for your equipment</span>';
+    html += '<button type="button" class="yt-link" style="font-size:11px;flex-shrink:0;" data-action="picker-show-all-equip">Show all</button>';
+    html += '</div>';
+  } else if (state.pickerShowAllEquip && state.profile.availableEquipment !== null) {
+    html += '<div style="padding:0 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+    html += '<span class="settings-desc" style="max-width:none;margin:0;">Showing all exercises</span>';
+    html += '<button type="button" class="yt-link" style="font-size:11px;flex-shrink:0;" data-action="picker-show-owned-equip">My equipment only</button>';
+    html += '</div>';
+  }
   html += '<div class="modal-list" id="picker-list">'+renderPickerList(filtered)+'</div>';
   html += '</div></div>';
   return html;
@@ -919,7 +1444,7 @@ function renderPickerList(filtered) {
   filtered.forEach(ex => {
     html += '<button class="picker-row" data-action="pick-exercise" data-ex-id="'+ex.id+'">';
     html += '<div><div class="pname">'+esc(ex.name)+'</div><div class="pmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+'</div></div>';
-    html += '<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",14)+'</span>';
+    html += '<span style="display:flex;align-items:center;gap:6px;">'+(ex.timed?'<span style="color:var(--cyan);display:flex;">'+icon("clock",13)+'</span>':'')+'<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",14)+'</span></span>';
     html += '</button>';
   });
   return html;
@@ -930,11 +1455,12 @@ function renderPickerList(filtered) {
 /* ------------------------------------------------------------------ */
 function filteredLibrary() {
   const q = state.librarySearch.toLowerCase();
-  return state.library.filter(e => e.name.toLowerCase().includes(q) && (state.libraryEquip === "All" || e.equipment === state.libraryEquip));
+  const matches = e => e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q));
+  return state.library.filter(e => matches(e) && (state.libraryEquip === "All" || e.equipment === state.libraryEquip));
 }
 
 function renderLibrary() {
-  let html = '<div class="search-box" style="margin: 0 0 14px;"><span style="color:var(--chalk-dim);display:flex;">'+icon("search",14)+'</span><input id="lib-search" placeholder="Search library..." value="'+esc(state.librarySearch)+'" /></div>';
+  let html = '<div class="search-box" style="margin: 0 0 14px;"><span style="color:var(--chalk-dim);display:flex;">'+icon("search",14)+'</span><input id="lib-search" placeholder="Search by name or muscle group..." value="'+esc(state.librarySearch)+'" /></div>';
 
   html += '<div class="pill-row">';
   ["All", ...state.equipment].forEach(eq => {
@@ -942,45 +1468,283 @@ function renderLibrary() {
   });
   html += '</div>';
 
-  if (!state.showManageEquipment) {
-    html += '<button class="dashed-btn" style="margin-bottom:14px;" data-action="toggle-manage-equipment">'+icon("gear",14)+' Manage equipment</button>';
-  } else {
-    html += '<div class="card" style="margin-bottom:14px;">';
-    html += '<div class="settings-title" style="margin-bottom:8px;">Equipment</div>';
-    html += '<div class="pill-row" style="margin-bottom:12px;">';
-    state.equipment.forEach(eq => {
-      html += '<span class="pill pill-removable">'+esc(eq)+'<button data-action="remove-equipment" data-equip="'+esc(eq)+'" title="Remove">'+icon("x",11)+'</button></span>';
-    });
-    html += '</div>';
-    html += '<div class="form-row-2">';
-    html += '<input class="text-input" id="new-equip-input" placeholder="New equipment (e.g. Kettlebell)" />';
-    html += '<button class="btn-outline" data-action="add-equipment">'+icon("plus",14)+' Add</button>';
-    html += '</div>';
-    html += '<button class="btn-outline" style="margin-top:10px;width:100%;" data-action="toggle-manage-equipment">Done</button>';
-    html += '</div>';
-  }
+  html += '<div class="form-row-2" style="margin-bottom:14px;">';
+  html += '<button class="btn-outline" data-action="open-add-exercise">'+icon("plus",14)+' Add exercise</button>';
+  html += '<button class="btn-outline" data-action="open-manage-equipment">'+icon("gear",14)+' Manage equipment</button>';
+  html += '</div>';
 
   html += '<div id="lib-list">'+renderLibraryList()+'</div>';
 
-  if (!state.showAddExercise) {
-    html += '<button class="dashed-btn" data-action="open-add-exercise">'+icon("plus",14)+' Add custom exercise</button>';
-  } else {
-    const f = state.addForm;
-    html += '<div class="card" style="margin-top:2px;">';
-    html += '<input class="text-input" style="margin-bottom:10px;" id="add-ex-name" placeholder="Exercise name" value="'+esc(f.name)+'" />';
-    html += '<input class="text-input" style="margin-bottom:10px;" id="add-ex-muscle" placeholder="Muscle group (optional)" value="'+esc(f.muscle)+'" />';
-    html += '<textarea class="text-input" style="margin-bottom:10px;" id="add-ex-instructions" rows="2" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
-    html += '<div class="form-row-2" style="margin-bottom:12px;">';
-    html += '<select class="select-input" id="add-ex-equipment">'+state.equipment.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
-    html += '<select class="select-input" id="add-ex-category"><option value="strength" '+(f.category==="strength"?"selected":"")+'>Strength</option><option value="cardio" '+(f.category==="cardio"?"selected":"")+'>Cardio</option></select>';
+  html += '<div class="foot-note">'+icon("alert",13)+'<p>Custom exercises are available in Routine right away.</p></div>';
+
+  if (state.showManageEquipment) html += renderManageEquipmentModal();
+  return html;
+}
+function renderAddExerciseModal() {
+  const f = state.addForm;
+  let html = '<div class="modal-overlay" data-action="close-add-exercise">';
+  html += '<div class="modal" style="max-height:85vh;">';
+  html += '<div class="modal-head"><span class="font-display">Add exercise</span><button data-action="close-add-exercise">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+  html += '<input class="text-input" style="margin-bottom:10px;" id="add-ex-name" placeholder="Exercise name" value="'+esc(f.name)+'" />';
+  html += '<input class="text-input" style="margin-bottom:10px;" id="add-ex-muscle" placeholder="Muscle group (optional)" value="'+esc(f.muscle)+'" />';
+  html += '<textarea class="text-input" style="margin-bottom:10px;" id="add-ex-instructions" rows="2" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
+  html += '<div class="form-row-2" style="margin-bottom:12px;">';
+  html += '<select class="select-input" id="add-ex-equipment">'+state.equipment.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
+  html += '<select class="select-input" id="add-ex-category"><option value="strength" '+(f.category==="strength"?"selected":"")+'>Strength</option><option value="cardio" '+(f.category==="cardio"?"selected":"")+'>Cardio</option></select>';
+  html += '</div>';
+  html += '<select class="select-input" style="margin-bottom:10px;width:100%;" id="add-ex-intensity">'+INTENSITY_LEVELS.map(l=>'<option value="'+l.id+'" '+(f.intensity===l.id?"selected":"")+'>'+l.label+' intensity</option>').join('')+'</select>';
+  html += '<button type="button" class="btn-outline" style="width:100%;justify-content:flex-start;display:flex;align-items:center;gap:8px;text-align:left;'+(f.timed?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="toggle-add-timed">'+icon(f.timed?"check":"clock",14)+' Timed exercise (hold/duration instead of sets &amp; reps)</button>';
+  html += '</div>';
+  html += '<div style="padding:12px 16px 16px;display:flex;gap:8px;">';
+  html += '<button class="btn-primary" style="flex:1;" data-action="save-add-exercise">Save</button>';
+  html += '<button class="btn-outline" style="flex:1;" data-action="close-add-exercise">Cancel</button>';
+  html += '</div>';
+  html += '</div></div>';
+  return html;
+}
+function renderManageEquipmentModal() {
+  let html = '<div class="modal-overlay" data-action="close-manage-equipment">';
+  html += '<div class="modal" style="max-height:80vh;">';
+  html += '<div class="modal-head"><span class="font-display">Manage equipment</span><button data-action="close-manage-equipment">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+  html += '<div class="settings-desc" style="max-width:none;margin-bottom:12px;">Equipment types show up as filters in the Library and as options when adding a custom exercise.</div>';
+  html += '<div class="pill-row" style="flex-wrap:wrap;overflow-x:visible;margin-bottom:16px;">';
+  state.equipment.forEach(eq => {
+    html += '<span class="pill pill-removable">'+esc(eq)+'<button data-action="remove-equipment" data-equip="'+esc(eq)+'" title="Remove">'+icon("x",11)+'</button></span>';
+  });
+  html += '</div>';
+  html += '<div class="form-row-2">';
+  html += '<input class="text-input" id="new-equip-input" placeholder="New equipment (e.g. Kettlebell)" />';
+  html += '<button class="btn-outline" data-action="add-equipment">'+icon("plus",14)+' Add</button>';
+  html += '</div>';
+  html += '</div>';
+  html += '<div style="padding:12px 16px 16px;"><button class="btn-primary" style="width:100%;" data-action="close-manage-equipment">Done</button></div>';
+  html += '</div></div>';
+  return html;
+}
+
+function renderSuggestedModal() {
+  const myGoals = state.profile.goals || [];
+  const recommended = ROUTINE_TEMPLATES.filter(t => myGoals.includes(t.goalId));
+  const others = ROUTINE_TEMPLATES.filter(t => !myGoals.includes(t.goalId));
+  const ordered = recommended.concat(others);
+
+  let html = '<div class="modal-overlay" data-action="close-suggested-modal">';
+  html += '<div class="modal" style="max-height:85vh;">';
+  html += '<div class="modal-head"><span class="font-display">Suggested routines</span><button data-action="close-suggested-modal">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+  html += '<div class="settings-desc" style="max-width:none;margin-bottom:14px;">Full-week starting points, built from the exercise library. Using one replaces your current routine — you can still edit any day afterward.</div>';
+
+  ordered.forEach(t => {
+    const isRec = myGoals.includes(t.goalId);
+    const stats = templateStats(t.build());
+    const confirming = state.confirmUseTemplateId === t.id;
+    html += '<div class="card" style="margin-bottom:12px;'+(isRec?"border-color:var(--ember);":"")+'">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">';
+    html += '<div class="settings-title">'+esc(t.label)+'</div>';
+    if (isRec) html += '<span class="day-tag strength" style="flex-shrink:0;">Recommended</span>';
     html += '</div>';
-    html += '<div class="form-row-2">';
-    html += '<button class="btn-primary" data-action="save-add-exercise">Save</button>';
-    html += '<button class="btn-outline" data-action="cancel-add-exercise">Cancel</button>';
-    html += '</div></div>';
+    html += '<div class="settings-desc" style="max-width:none;margin-bottom:10px;">'+esc(t.blurb)+'</div>';
+    html += '<div class="lmeta" style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:var(--chalk-dim);margin-bottom:10px;">'+
+      stats.strength+' strength · '+stats.cardio+' cardio · '+stats.rest+' rest</div>';
+    html += '<button class="btn-outline" style="width:100%;'+(confirming?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="use-template" data-template-id="'+t.id+'">'+
+      (confirming ? "Tap again to replace your routine" : "Use this routine")+'</button>';
+    html += '</div>';
+  });
+
+  html += '</div></div></div>';
+  return html;
+}
+
+function todaysSessionBlocks() {
+  return state.routine[new Date().getDay()].blocks;
+}
+function markSessionBlockDone(block) {
+  const dKey = todayKey();
+  const cur = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
+  if (!cur.includes(block.id)) {
+    state.progress[dKey] = { doneBlockIds: [...cur, block.id] };
+    saveData();
+  }
+}
+function isSessionBlockComplete(block) {
+  if (block.durationSec !== undefined) {
+    const dKey = todayKey();
+    const doneIds = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
+    return doneIds.includes(block.id);
+  }
+  return (state.sessionSets[block.id] || 0) >= (block.sets || 1);
+}
+// Called right after a set is logged or an exercise is completed, to decide
+// where the session goes next. "Rotate" cycles to the next exercise that
+// still has work left (wrapping around, circuit-style); the default
+// advances one exercise forward in order, same as a plain Next tap.
+function sessionAdvance(blocks) {
+  if (state.sessionRotate) {
+    for (let step = 1; step <= blocks.length; step++) {
+      const idx = (state.sessionIndex + step) % blocks.length;
+      if (!isSessionBlockComplete(blocks[idx])) { state.sessionIndex = idx; return; }
+    }
+    state.sessionIndex = blocks.length; // nothing left — session complete
+  } else {
+    state.sessionIndex = Math.min(state.sessionIndex + 1, blocks.length);
+  }
+}
+let sessionTimerInterval = null;
+function stopSessionTimer() {
+  if (sessionTimerInterval) { clearInterval(sessionTimerInterval); sessionTimerInterval = null; }
+  if (state.sessionTimer) state.sessionTimer.running = false;
+}
+function startSessionTimer(block) {
+  stopSessionTimer();
+  if (!state.sessionTimer || state.sessionTimer.blockId !== block.id) {
+    state.sessionTimer = { blockId: block.id, remaining: block.durationSec, total: block.durationSec, running: false };
+  }
+  if (state.sessionTimer.remaining <= 0) state.sessionTimer.remaining = state.sessionTimer.total;
+  state.sessionTimer.running = true;
+  sessionTimerInterval = setInterval(() => {
+    if (!state.sessionTimer) { stopSessionTimer(); return; }
+    state.sessionTimer.remaining -= 1;
+    const timeEl = document.getElementById("session-timer-remaining");
+    if (timeEl) timeEl.textContent = fmtClock(state.sessionTimer.remaining);
+    const fillEl = document.getElementById("session-timer-fill");
+    if (fillEl) fillEl.style.width = Math.max(0, (state.sessionTimer.remaining / state.sessionTimer.total) * 100) + "%";
+    if (state.sessionTimer.remaining <= 0) {
+      stopSessionTimer();
+      const blocks = todaysSessionBlocks();
+      markSessionBlockDone(blocks[state.sessionIndex]);
+      sessionAdvance(blocks);
+      render();
+    }
+  }, 1000);
+}
+function renderSessionModal() {
+  const blocks = todaysSessionBlocks();
+  const dKey = todayKey();
+  const doneIds = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
+
+  let html = '<div class="modal-overlay" data-action="close-session" style="align-items:stretch;">';
+  html += '<div class="modal" style="max-width:none;max-height:none;height:100%;border-radius:0;">';
+  html += '<div class="modal-head"><span class="font-display">Session</span><span class="day-tag '+(state.sessionRotate?"cardio":"strength")+'" style="margin-left:8px;">'+(state.sessionRotate?"Rotating":"Sequential")+'</span><button data-action="close-session" style="margin-left:auto;">'+icon("x",18)+'</button></div>';
+
+  if (blocks.length === 0) {
+    html += '<div class="modal-list"><div class="empty-note">Nothing scheduled today.</div></div></div></div>';
+    return html;
   }
 
-  html += '<div class="foot-note">'+icon("alert",13)+'<p>Custom exercises are available in Routine right away.</p></div>';
+  if (state.sessionIndex >= blocks.length) {
+    html += '<div class="modal-list" style="text-align:center;padding-top:15vh;">';
+    html += '<div style="color:var(--ember);display:flex;justify-content:center;margin-bottom:16px;">'+icon("flame",48)+'</div>';
+    html += '<div class="font-display" style="font-size:22px;margin-bottom:8px;text-transform:uppercase;">Session complete</div>';
+    html += '<div class="settings-desc" style="max-width:none;margin-bottom:24px;">Nice work — logged today\'s workout.</div>';
+    html += '<button class="btn-primary" style="width:100%;" data-action="close-session">Done</button>';
+    html += '</div></div></div>';
+    return html;
+  }
+
+  const block = blocks[state.sessionIndex];
+  const ex = exById(block.exerciseId);
+  const isDuration = block.durationSec !== undefined;
+
+  html += '<div class="modal-list">';
+  html += '<div class="settings-desc" style="max-width:none;margin-bottom:6px;">Exercise '+(state.sessionIndex+1)+' of '+blocks.length+'</div>';
+  html += '<div style="height:6px;border-radius:3px;background:var(--bg800);overflow:hidden;margin-bottom:22px;"><div style="height:100%;width:'+Math.round((state.sessionIndex/blocks.length)*100)+'%;background:var(--ember);"></div></div>';
+
+  html += '<h2 class="font-display" style="font-size:28px;margin:0 0 6px;text-transform:uppercase;line-height:1.1;">'+(ex?esc(ex.name):"Unknown exercise")+'</h2>';
+  if (ex) html += '<div class="settings-desc" style="max-width:none;margin-bottom:18px;">'+esc(ex.muscle)+' · '+esc(ex.equipment)+' · '+intensityLabel(ex.intensity)+'</div>';
+
+  if (isDuration) {
+    const timer = (state.sessionTimer && state.sessionTimer.blockId === block.id) ? state.sessionTimer : { remaining: block.durationSec, total: block.durationSec, running: false };
+    html += '<div class="card" style="text-align:center;padding:32px 14px;margin-bottom:16px;">';
+    html += '<div id="session-timer-remaining" class="font-display" style="font-size:52px;margin-bottom:16px;">'+fmtClock(timer.remaining)+'</div>';
+    html += '<div style="height:8px;border-radius:4px;background:var(--bg800);overflow:hidden;margin-bottom:18px;"><div id="session-timer-fill" style="height:100%;width:'+Math.max(0,(timer.remaining/timer.total)*100)+'%;background:var(--ember);"></div></div>';
+    html += '<div class="form-row-2">';
+    if (timer.running) html += '<button class="btn-outline" style="flex:1;" data-action="session-timer-pause">'+icon("pause",14)+' Pause</button>';
+    else html += '<button class="btn-primary" style="flex:1;" data-action="session-timer-start">'+icon("play",14)+' '+(timer.remaining < timer.total ? "Resume" : "Start")+'</button>';
+    html += '<button class="btn-outline" style="flex:1;" data-action="session-timer-reset">'+icon("rotate",14)+' Reset</button>';
+    html += '</div></div>';
+  } else {
+    const logged = state.sessionSets[block.id] || 0;
+    const target = block.sets || 1;
+    html += '<div class="card" style="text-align:center;padding:28px 14px;margin-bottom:16px;">';
+    html += '<div class="font-display" style="font-size:20px;margin-bottom:4px;">'+target+' × '+block.repsMin+(block.repsMax && block.repsMax!==block.repsMin?"-"+block.repsMax:"")+' reps</div>';
+    html += '<div class="settings-desc" style="max-width:none;margin-bottom:18px;">'+logged+' of '+target+' sets logged</div>';
+    if (logged < target) html += '<button class="btn-primary" style="width:100%;" data-action="session-log-set">'+icon("check",14)+' Log Set</button>';
+    else html += '<button class="btn-outline" style="width:100%;" disabled>'+icon("check",14)+' All sets logged</button>';
+    html += '</div>';
+  }
+  if (block.note) html += '<div class="foot-note">'+icon("info",13)+'<p>'+esc(block.note)+'</p></div>';
+
+  html += '<div class="form-row-2" style="margin-top:10px;">';
+  html += '<button class="btn-outline" '+(state.sessionIndex===0?"disabled":"")+' data-action="session-prev">'+icon("chevronLeft",14)+' Back</button>';
+  html += '<button class="btn-outline" data-action="session-mark-done">'+icon("check",14)+' Mark all sets done</button>';
+  html += '</div>';
+  html += '<button class="btn-primary" style="width:100%;margin-top:8px;" data-action="session-next">'+(state.sessionIndex===blocks.length-1?"Finish":"Next exercise")+' '+icon("chevronRight",14)+'</button>';
+
+  html += '</div></div></div>';
+  return html;
+}
+
+function renderBadgeModal() {
+  const stats = getStreakStats();
+  const earnedIds = new Set(stats.earned.map(b => b.id));
+  let html = '<div class="modal-overlay" data-action="close-badge-modal">';
+  html += '<div class="modal" style="max-height:88vh;">';
+  html += '<div class="modal-head"><span class="font-display">Streaks &amp; Badges</span><button data-action="close-badge-modal">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+
+  html += '<div style="display:flex;gap:10px;margin-bottom:14px;">';
+  html += '<div class="card" style="flex:1;text-align:center;padding:14px 10px;">';
+  html += '<div style="color:var(--ember);display:flex;justify-content:center;margin-bottom:6px;">'+icon("flame",22)+'</div>';
+  html += '<div class="font-display" style="font-size:22px;">'+stats.current+'</div>';
+  html += '<div class="settings-desc" style="max-width:none;margin:0;">Current streak</div>';
+  html += '</div>';
+  html += '<div class="card" style="flex:1;text-align:center;padding:14px 10px;">';
+  html += '<div style="color:var(--chalk-dim);display:flex;justify-content:center;margin-bottom:6px;">'+icon("clock",22)+'</div>';
+  html += '<div class="font-display" style="font-size:22px;">'+stats.best+'</div>';
+  html += '<div class="settings-desc" style="max-width:none;margin:0;">Best streak</div>';
+  html += '</div>';
+  html += '<div class="card" style="flex:1;text-align:center;padding:14px 10px;">';
+  html += '<div style="color:var(--chalk-dim);display:flex;justify-content:center;margin-bottom:6px;">'+icon("listChecks",22)+'</div>';
+  html += '<div class="font-display" style="font-size:22px;">'+stats.total+'</div>';
+  html += '<div class="settings-desc" style="max-width:none;margin:0;">Total completed</div>';
+  html += '</div>';
+  html += '</div>';
+
+  html += '<div class="card" style="margin-bottom:16px;">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+  html += '<div class="settings-title">Rank: '+stats.rank.label+'</div>';
+  if (stats.rank.next) html += '<span class="settings-desc" style="max-width:none;margin:0;">'+stats.rank.toNext+' to '+stats.rank.next.label+'</span>';
+  html += '</div>';
+  if (stats.rank.next) {
+    const pct = Math.min(100, Math.round(((stats.total - stats.rank.min) / (stats.rank.next.min - stats.rank.min)) * 100));
+    html += '<div style="height:8px;border-radius:4px;background:var(--bg800);overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:var(--ember);"></div></div>';
+  } else {
+    html += '<div class="settings-desc" style="max-width:none;margin:0;">Top rank reached — keep going for the record books.</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="section-label font-mono" style="margin-bottom:8px;">Badges</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;">';
+  BADGES.forEach(b => {
+    const earned = earnedIds.has(b.id);
+    html += '<div class="card" style="text-align:center;padding:12px 6px;'+(earned?"border-color:var(--ember);":"opacity:0.45;")+'">';
+    html += '<div style="color:'+(earned?"var(--ember)":"var(--chalk-dim)")+';display:flex;justify-content:center;margin-bottom:6px;">'+icon(earned?"zap":"lock",18)+'</div>';
+    html += '<div style="font-size:11px;font-weight:600;color:var(--chalk);line-height:1.3;">'+esc(b.label)+'</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  html += '<div class="section-label font-mono" style="margin-bottom:8px;">Share your progress</div>';
+  html += '<canvas id="badge-canvas" width="600" height="600" style="display:none;"></canvas>';
+  html += '<div id="badge-preview" style="border-radius:10px;overflow:hidden;margin-bottom:12px;border:1px solid var(--line);"></div>';
+  html += '<div class="form-row-2">';
+  html += '<button class="btn-outline" data-action="download-badge">'+icon("download",14)+' Download</button>';
+  html += '<button class="btn-primary" data-action="share-badge">'+icon("upload",14)+' Share</button>';
+  html += '</div>';
+
+  html += '</div></div></div>';
   return html;
 }
 function renderLibraryList() {
@@ -990,22 +1754,41 @@ function renderLibraryList() {
   filtered.forEach(ex => {
     const open = !!state.openInfo["lib-"+ex.id];
     const hidden = !!ex.hidden;
-    html += '<div class="lib-row" style="'+(hidden?"opacity:0.55;":"")+'">';
+    const editing = state.editingExId === ex.id;
+    html += '<div class="lib-row" style="'+(hidden && !editing?"opacity:0.55;":"")+'">';
     html += '<button class="lib-row-head" data-action="toggle-lib-info" data-ex-id="'+ex.id+'">';
-    html += '<div><div class="lname">'+esc(ex.name)+(hidden?' <span class="day-tag strength" style="margin-left:6px;">Hidden</span>':'')+'</div><div class="lmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+'</div></div>';
-    html += '<div class="lib-row-icons"><span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",16)+'</span>';
+    html += '<div><div class="lname">'+esc(ex.name)+(ex.timed?' <span class="day-tag cardio" style="margin-left:6px;">Timed</span>':'')+(hidden?' <span class="day-tag strength" style="margin-left:6px;">Hidden</span>':'')+'</div><div class="lmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+' · '+intensityLabel(ex.intensity)+'</div></div>';
+    html += '<div class="lib-row-icons">'+(ex.timed?'<span style="color:var(--cyan);display:flex;">'+icon("clock",15)+'</span>':'')+'<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",16)+'</span>';
     html += '<span style="display:flex;color:var(--chalk-dim);transform:'+(open?"rotate(180deg)":"none")+';transition:transform .15s;">'+icon("chevronDown",15)+'</span></div>';
     html += '</button>';
-    if (open) {
+    if (open && editing) {
+      const f = state.editForm;
+      html += '<div class="lib-detail">';
+      html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-name" placeholder="Exercise name" value="'+esc(f.name)+'" />';
+      html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-muscle" placeholder="Muscle group" value="'+esc(f.muscle)+'" />';
+      html += '<textarea class="text-input" style="margin-bottom:10px;" id="edit-ex-instructions" rows="2" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
+      html += '<div class="form-row-2" style="margin-bottom:10px;">';
+      html += '<select class="select-input" id="edit-ex-equipment">'+state.equipment.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
+      html += '<select class="select-input" id="edit-ex-category"><option value="strength" '+(f.category==="strength"?"selected":"")+'>Strength</option><option value="cardio" '+(f.category==="cardio"?"selected":"")+'>Cardio</option></select>';
+      html += '</div>';
+      html += '<select class="select-input" style="margin-bottom:10px;width:100%;" id="edit-ex-intensity">'+INTENSITY_LEVELS.map(l=>'<option value="'+l.id+'" '+(f.intensity===l.id?"selected":"")+'>'+l.label+' intensity</option>').join('')+'</select>';
+      html += '<button type="button" class="btn-outline" style="width:100%;justify-content:flex-start;display:flex;align-items:center;gap:8px;text-align:left;margin-bottom:12px;'+(f.timed?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="toggle-edit-timed">'+icon(f.timed?"check":"clock",14)+' Timed exercise (hold/duration instead of sets &amp; reps)</button>';
+      html += '<div class="form-row-2">';
+      html += '<button class="btn-primary" data-action="save-edit-exercise">Save</button>';
+      html += '<button class="btn-outline" data-action="cancel-edit-exercise">Cancel</button>';
+      html += '</div>';
+      html += '</div>';
+    } else if (open) {
       html += '<div class="lib-detail">';
       if (ex.instructions) html += '<p>'+esc(ex.instructions)+'</p>';
       html += '<a class="yt-link" href="'+youtubeSearchUrl(ex.name)+'" target="_blank" rel="noopener noreferrer">'+icon("youtube",14)+' Watch "'+esc(ex.name)+'" on YouTube</a>';
       html += '<div style="display:flex;gap:8px;margin-top:10px;">';
+      html += '<button class="btn-outline" style="flex:1;" data-action="start-edit-exercise" data-ex-id="'+ex.id+'">'+icon("edit",13)+' Edit</button>';
       if (ex.custom) {
         const confirming = state.confirmDeleteExId === ex.id;
-        html += '<button class="btn-outline" style="flex:1;'+(confirming?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="delete-exercise" data-ex-id="'+ex.id+'">'+icon("trash",13)+' '+(confirming?"Tap again to delete":"Delete exercise")+'</button>';
+        html += '<button class="btn-outline" style="flex:1;'+(confirming?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="delete-exercise" data-ex-id="'+ex.id+'">'+icon("trash",13)+' '+(confirming?"Tap again to delete":"Delete")+'</button>';
       } else {
-        html += '<button class="btn-outline" style="flex:1;" data-action="toggle-hide-exercise" data-ex-id="'+ex.id+'">'+icon(hidden?"eye":"eyeOff",13)+' '+(hidden?"Unhide exercise":"Hide exercise")+'</button>';
+        html += '<button class="btn-outline" style="flex:1;" data-action="toggle-hide-exercise" data-ex-id="'+ex.id+'">'+icon(hidden?"eye":"eyeOff",13)+' '+(hidden?"Unhide":"Hide")+'</button>';
       }
       html += '</div>';
       html += '</div>';
@@ -1033,6 +1816,7 @@ function renderSettings() {
   html += '<input class="text-input" id="prof-weight" type="number" min="0" placeholder="Weight (lbs)" value="'+esc(p.weightLbs)+'" />';
   html += '</div>';
   html += renderGoalPicker(p.goals);
+  html += renderEquipmentOwnedPicker();
   html += '<div class="settings-desc" style="max-width:none;margin:10px 0 12px;">Used only to tailor the suggestions in "Check My Workout." Saved on this device.</div>';
   html += '<button class="dashed-btn" data-action="open-check-modal">'+icon("activity",14)+' Check My Workout</button>';
   html += '</div></div>';
@@ -1058,7 +1842,25 @@ function renderSettings() {
   html += '</div></div>';
   html += '</div></div>';
 
+  html += '<div class="settings-block"><div class="section-label font-mono">Workout Session</div><div class="card">';
+  html += '<div class="settings-title" style="margin-bottom:2px;">Session flow</div>';
+  html += '<div class="settings-desc" style="margin-bottom:10px;">How "Start Session" moves between exercises when you have more than one set</div>';
+  html += '<div class="settings-toggle" style="width:100%;">';
+  html += '<button style="flex:1;" class="'+(!state.sessionRotate?"active":"")+'" data-action="set-session-rotate" data-rotate="0">'+icon("listChecks",13)+' Complete each exercise</button>';
+  html += '<button style="flex:1;" class="'+(state.sessionRotate?"active":"")+'" data-action="set-session-rotate" data-rotate="1">'+icon("rotate",13)+' Rotate between exercises</button>';
+  html += '</div>';
+  html += '<div class="settings-desc" style="max-width:none;margin-top:10px;">'+
+    (state.sessionRotate
+      ? "One set at a time, cycling through every exercise before coming back around — good for circuits and supersets."
+      : "All sets of one exercise before moving to the next, in order — good for straightforward strength sessions.")+
+    '</div>';
+  html += '</div></div>';
+
   html += '<div class="settings-block"><div class="section-label font-mono">Data</div><div class="card">';
+  html += '<div class="settings-item-row" style="border-top:none;padding-top:0;margin-top:0;">';
+  html += '<div><div class="settings-title">Choose a suggested routine</div><div class="settings-desc">Pick a ready-made week built around your goals.</div></div>';
+  html += '<button class="action-btn" data-action="open-suggested-modal">'+icon("listChecks",12)+' Browse</button>';
+  html += '</div>';
   html += settingsAction("clear-progress", "Clear checked-off progress", "Wipes every completed checkmark on every date. Your routine stays intact.");
   html += settingsAction("reset-routine", "Load sample routine", "Replaces your current week with the built-in Mon–Sun strength / cardio split.");
   html += settingsAction("reset-routine-blank", "Clear routine to blank", "Removes every scheduled exercise so all seven days start empty, ready to rebuild.");
@@ -1169,6 +1971,7 @@ function suggestionIcon(type) {
   if (type === "recovery") return "clock";
   if (type === "age") return "info";
   if (type === "warning") return "alert";
+  if (type === "intensity") return "zap";
   return "flame";
 }
 
@@ -1223,7 +2026,12 @@ function render() {
   else if (state.tab === "library") mainHtml = renderLibrary();
   else if (state.tab === "settings") mainHtml = renderSettings();
 
-  app.innerHTML = renderHeader() + '<main>' + mainHtml + '</main>' + renderTabBar() + (state.showCheckModal ? renderCheckModal() : "");
+  app.innerHTML = renderHeader() + '<main>' + mainHtml + '</main>' + renderTabBar() +
+    (state.showCheckModal ? renderCheckModal() : "") +
+    (state.showSuggestedModal ? renderSuggestedModal() : "") +
+    (state.showAddExercise ? renderAddExerciseModal() : "") +
+    (state.sessionActive ? renderSessionModal() : "") +
+    (state.showBadgeModal ? renderBadgeModal() : "");
   attachLiveInputs();
 }
 
@@ -1244,7 +2052,8 @@ function attachLiveInputs() {
     pickerSearch.addEventListener("input", (e) => {
       state.pickerQuery = e.target.value;
       const q = state.pickerQuery.toLowerCase();
-      const filtered = state.library.filter(ex => ex.name.toLowerCase().includes(q));
+      const ef = pickerEquipmentFilter();
+      const filtered = state.library.filter(ex => !ex.hidden && (ex.name.toLowerCase().includes(q) || (ex.muscle && ex.muscle.toLowerCase().includes(q))) && (!ef.active || ef.owned.includes(ex.equipment)));
       document.getElementById("picker-list").innerHTML = renderPickerList(filtered);
     });
   }
@@ -1260,8 +2069,11 @@ function attachLiveInputs() {
   if (eqSel) eqSel.addEventListener("change", e => state.addForm.equipment = e.target.value);
   const catSel = document.getElementById("add-ex-category");
   if (catSel) catSel.addEventListener("change", e => state.addForm.category = e.target.value);
+  const intSel = document.getElementById("add-ex-intensity");
+  if (intSel) intSel.addEventListener("change", e => state.addForm.intensity = e.target.value);
 
-  // Day label input (builder)
+  bindEditExerciseForm();
+  renderBadgePreview();
   const dayLabelInput = document.querySelector('[data-action="edit-day-label"]');
   if (dayLabelInput) dayLabelInput.addEventListener("input", (e) => {
     state.routine[state.builderDay].label = e.target.value;
@@ -1279,6 +2091,12 @@ function attachLiveInputs() {
     el.addEventListener("input", (e) => {
       const block = findBlock(el.dataset.blockId);
       if (block) block.durationSec = Math.max(1, Number(e.target.value) || 1) * 60;
+    });
+  });
+  document.querySelectorAll('[data-action="edit-duration-sec"]').forEach(el => {
+    el.addEventListener("input", (e) => {
+      const block = findBlock(el.dataset.blockId);
+      if (block) block.durationSec = Math.max(5, Number(e.target.value) || 5);
     });
   });
   document.querySelectorAll('[data-action="edit-note"]').forEach(el => {
@@ -1311,6 +2129,83 @@ function attachLiveInputs() {
       e.target.value = ""; // allow re-selecting the same file later
     });
   }
+}
+
+function bindEditExerciseForm() {
+  if (!state.editForm) return;
+  ["edit-ex-name","edit-ex-muscle","edit-ex-instructions"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", (e) => {
+      const key = id.replace("edit-ex-","");
+      state.editForm[key] = e.target.value;
+    });
+  });
+  const eEqSel = document.getElementById("edit-ex-equipment");
+  if (eEqSel) eEqSel.addEventListener("change", e => state.editForm.equipment = e.target.value);
+  const eCatSel = document.getElementById("edit-ex-category");
+  if (eCatSel) eCatSel.addEventListener("change", e => state.editForm.category = e.target.value);
+  const eIntSel = document.getElementById("edit-ex-intensity");
+  if (eIntSel) eIntSel.addEventListener("change", e => state.editForm.intensity = e.target.value);
+}
+
+function drawBadgeCanvas() {
+  const canvas = document.getElementById("badge-canvas");
+  if (!canvas) return null;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const cs = getComputedStyle(document.documentElement);
+  const ember = cs.getPropertyValue("--ember").trim() || "#E8622C";
+  const bg950 = cs.getPropertyValue("--bg950").trim() || "#14181C";
+  const bg900 = cs.getPropertyValue("--bg900").trim() || "#1B2126";
+  const chalk = cs.getPropertyValue("--chalk").trim() || "#ECE8E1";
+  const chalkDim = cs.getPropertyValue("--chalk-dim").trim() || "#8F99A1";
+  const stats = getStreakStats();
+  const W = canvas.width, H = canvas.height;
+
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, bg900);
+  grad.addColorStop(1, bg950);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = chalk;
+  ctx.font = "700 34px Oswald, sans-serif";
+  ctx.fillText("RST", W / 2, 90);
+  ctx.font = "600 14px 'JetBrains Mono', monospace";
+  ctx.fillStyle = chalkDim;
+  ctx.fillText("READY SET TRAIN", W / 2, 116);
+
+  ctx.fillStyle = ember;
+  ctx.font = "700 150px Oswald, sans-serif";
+  ctx.fillText(String(stats.current), W / 2, 330);
+  ctx.font = "600 20px 'JetBrains Mono', monospace";
+  ctx.fillStyle = chalk;
+  ctx.fillText((stats.current === 1 ? "DAY STREAK" : "DAY STREAK"), W / 2, 365);
+
+  ctx.font = "700 30px Oswald, sans-serif";
+  ctx.fillStyle = chalk;
+  ctx.fillText(stats.rank.label.toUpperCase() + " RANK", W / 2, 440);
+
+  ctx.font = "600 16px 'JetBrains Mono', monospace";
+  ctx.fillStyle = chalkDim;
+  ctx.fillText("Best streak: " + stats.best + "  ·  Total completed: " + stats.total, W / 2, 478);
+
+  ctx.fillStyle = ember;
+  ctx.fillRect(W / 2 - 90, 508, 180, 6);
+
+  return canvas;
+}
+function renderBadgePreview() {
+  if (!document.getElementById("badge-canvas")) return;
+  const draw = () => {
+    drawBadgeCanvas();
+    const canvas = document.getElementById("badge-canvas");
+    const preview = document.getElementById("badge-preview");
+    if (canvas && preview) preview.innerHTML = '<img src="'+canvas.toDataURL("image/png")+'" style="width:100%;display:block;" alt="Achievement badge preview" />';
+  };
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw).catch(draw);
+  else draw();
 }
 
 function bindProfileField(elId, profileKey, isSelect) {
@@ -1364,6 +2259,10 @@ document.addEventListener("click", (e) => {
   if (action === "toggle-lib-info") {
     const key = "lib-" + t.dataset.exId;
     state.openInfo[key] = !state.openInfo[key];
+    if (!state.openInfo[key] && state.editingExId === t.dataset.exId) {
+      state.editingExId = null;
+      state.editForm = null;
+    }
     document.getElementById("lib-list").innerHTML = renderLibraryList();
     return;
   }
@@ -1380,19 +2279,46 @@ document.addEventListener("click", (e) => {
   if (action === "builder-day") {
     state.builderDay = Number(t.dataset.day);
     state.pickerOpen = false;
+    state.confirmingAction = null;
     render(); return;
   }
   if (action === "set-day-type") {
-    state.routine[state.builderDay].type = t.dataset.type;
-    render(); return;
+    const day = state.routine[state.builderDay];
+    const newType = t.dataset.type;
+    if (newType === "rest") {
+      if (day.blocks.length > 0 && state.confirmingAction !== "rest-day") {
+        state.confirmingAction = "rest-day";
+        render(); return;
+      }
+      day.blocks = [];
+      day.isRest = true;
+      state.confirmingAction = null;
+    } else {
+      day.type = newType;
+      day.isRest = false;
+      state.confirmingAction = null;
+    }
+    saveData(); render(); return;
   }
   if (action === "remove-block") {
     const day = state.routine[state.builderDay];
     day.blocks = day.blocks.filter(b => b.id !== t.dataset.blockId);
     saveData(); render(); return;
   }
+  if (action === "move-block") {
+    const day = state.routine[state.builderDay];
+    const idx = day.blocks.findIndex(b => b.id === t.dataset.blockId);
+    if (idx === -1) return;
+    const dir = t.dataset.dir === "up" ? -1 : 1;
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= day.blocks.length) return;
+    const tmp = day.blocks[idx];
+    day.blocks[idx] = day.blocks[swapIdx];
+    day.blocks[swapIdx] = tmp;
+    saveData(); render(); return;
+  }
   if (action === "open-picker") {
-    state.pickerOpen = true; state.pickerQuery = "";
+    state.pickerOpen = true; state.pickerQuery = ""; state.pickerShowAllEquip = false;
     pushHistory();
     render(); return;
   }
@@ -1403,11 +2329,25 @@ document.addEventListener("click", (e) => {
     closeModalViaBack();
     return;
   }
+  if (action === "picker-show-all-equip") {
+    state.pickerShowAllEquip = true;
+    render(); return;
+  }
+  if (action === "picker-show-owned-equip") {
+    state.pickerShowAllEquip = false;
+    render(); return;
+  }
   if (action === "pick-exercise") {
     const ex = exById(t.dataset.exId);
     if (ex) {
       const day = state.routine[state.builderDay];
-      day.blocks.push(ex.category === "cardio" ? cardioBlk(ex.id, 900) : blk(ex.id, 3, 10, 12));
+      day.isRest = false;
+      if (ex.category === "cardio" || ex.timed) {
+        const dur = TIMED_EXERCISE_DEFAULTS[ex.id] || (ex.category === "cardio" ? 900 : 30);
+        day.blocks.push(cardioBlk(ex.id, dur));
+      } else {
+        day.blocks.push(blk(ex.id, 3, 10, 12));
+      }
     }
     saveData();
     closeModalViaBack();
@@ -1417,9 +2357,97 @@ document.addEventListener("click", (e) => {
     state.libraryEquip = t.dataset.equip;
     render(); return;
   }
-  if (action === "toggle-manage-equipment") {
-    state.showManageEquipment = !state.showManageEquipment;
+  if (action === "open-manage-equipment") {
+    state.showManageEquipment = true;
+    pushHistory();
     render(); return;
+  }
+  if (action === "close-manage-equipment") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "open-suggested-modal") {
+    state.showSuggestedModal = true;
+    state.confirmUseTemplateId = null;
+    pushHistory();
+    render(); return;
+  }
+  if (action === "close-suggested-modal") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    state.confirmUseTemplateId = null;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "open-badge-modal") {
+    state.showBadgeModal = true;
+    pushHistory();
+    render(); return;
+  }
+  if (action === "close-badge-modal") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "download-badge") {
+    const canvas = document.getElementById("badge-canvas");
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "rst-badge-" + new Date().toISOString().slice(0, 10) + ".png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    return;
+  }
+  if (action === "share-badge") {
+    const canvas = document.getElementById("badge-canvas");
+    if (!canvas) return;
+    const stats = getStreakStats();
+    const shareText = "I'm on a "+stats.current+"-day streak on RST \u2022 Ready Set Train! Rank: "+stats.rank.label+". "+stats.total+" exercises completed so far.";
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      try {
+        const file = new File([blob], "rst-badge.png", { type: "image/png" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: "RST Streak", text: shareText });
+          return;
+        }
+        if (navigator.share) {
+          await navigator.share({ title: "RST Streak", text: shareText });
+          return;
+        }
+      } catch (err) {
+        if (err && err.name === "AbortError") return; // user cancelled — do nothing
+      }
+      // No Web Share support on this browser — open a text message with the
+      // summary pre-filled (the image itself can't attach via this fallback).
+      window.location.href = "sms:&body=" + encodeURIComponent(shareText);
+    });
+    return;
+  }
+  if (action === "use-template") {
+    const id = t.dataset.templateId;
+    if (state.confirmUseTemplateId === id) {
+      const tmpl = ROUTINE_TEMPLATES.find(x => x.id === id);
+      if (tmpl) state.routine = tmpl.build();
+      state.confirmUseTemplateId = null;
+      state.showSuggestedModal = false;
+      state.builderDay = new Date().getDay();
+      state.tab = "builder";
+      saveData();
+      replaceHistory();
+      render();
+    } else {
+      state.confirmUseTemplateId = id;
+      render();
+    }
+    return;
   }
   if (action === "add-equipment") {
     const input = document.getElementById("new-equip-input");
@@ -1466,27 +2494,91 @@ document.addEventListener("click", (e) => {
     if (i === -1) goals.push(id); else goals.splice(i, 1);
     saveData(); render(); return;
   }
+  if (action === "toggle-owned-equipment") {
+    const owned = ownedEquipmentOrDefault();
+    const i = owned.indexOf(t.dataset.equip);
+    if (i === -1) owned.push(t.dataset.equip); else owned.splice(i, 1);
+    state.profile.availableEquipment = owned;
+    saveData(); render(); return;
+  }
+  if (action === "owned-equipment-all") {
+    state.profile.availableEquipment = state.equipment.slice();
+    saveData(); render(); return;
+  }
+  if (action === "owned-equipment-none") {
+    state.profile.availableEquipment = [];
+    saveData(); render(); return;
+  }
   if (action === "set-palette") {
     state.palette = t.dataset.palette;
     saveData(); render(); return;
   }
+  if (action === "set-session-rotate") {
+    state.sessionRotate = t.dataset.rotate === "1";
+    saveData(); render(); return;
+  }
   if (action === "open-add-exercise") {
     state.showAddExercise = true;
+    pushHistory();
     render(); return;
   }
-  if (action === "cancel-add-exercise") {
-    state.showAddExercise = false;
-    state.addForm = { name:"", equipment:"Bodyweight", category:"strength", muscle:"", instructions:"" };
-    render(); return;
+  if (action === "close-add-exercise") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    closeModalViaBack();
+    return;
   }
   if (action === "save-add-exercise") {
     const f = state.addForm;
     if (!f.name.trim()) return;
     const id = f.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,"-") + "-" + Math.random().toString(36).slice(2,6);
-    state.library.push({ id, name: f.name.trim(), equipment: f.equipment, category: f.category, muscle: f.muscle || "Custom", instructions: f.instructions.trim(), custom: true, hidden: false });
-    state.showAddExercise = false;
-    state.addForm = { name:"", equipment:"Bodyweight", category:"strength", muscle:"", instructions:"" };
-    saveData(); render(); return;
+    state.library.push({ id, name: f.name.trim(), equipment: f.equipment, category: f.category, muscle: f.muscle || "Custom", instructions: f.instructions.trim(), intensity: f.intensity || "moderate", timed: !!f.timed, custom: true, hidden: false });
+    state.addForm = { name:"", equipment:"Bodyweight", category:"strength", muscle:"", instructions:"", intensity:"moderate", timed:false };
+    saveData();
+    closeModalViaBack();
+    return;
+  }
+  if (action === "toggle-add-timed") {
+    state.addForm.timed = !state.addForm.timed;
+    render(); return;
+  }
+  if (action === "toggle-edit-timed") {
+    state.editForm.timed = !state.editForm.timed;
+    document.getElementById("lib-list").innerHTML = renderLibraryList();
+    bindEditExerciseForm();
+    return;
+  }
+  if (action === "start-edit-exercise") {
+    const ex = exById(t.dataset.exId);
+    if (!ex) return;
+    state.editingExId = ex.id;
+    state.editForm = { name: ex.name, equipment: ex.equipment, category: ex.category, muscle: ex.muscle, instructions: ex.instructions || "", intensity: ex.intensity || "moderate", timed: !!ex.timed };
+    document.getElementById("lib-list").innerHTML = renderLibraryList();
+    bindEditExerciseForm();
+    return;
+  }
+  if (action === "cancel-edit-exercise") {
+    state.editingExId = null;
+    state.editForm = null;
+    document.getElementById("lib-list").innerHTML = renderLibraryList();
+    return;
+  }
+  if (action === "save-edit-exercise") {
+    const ex = exById(state.editingExId);
+    const f = state.editForm;
+    if (ex && f && f.name.trim()) {
+      ex.name = f.name.trim();
+      ex.equipment = f.equipment;
+      ex.category = f.category;
+      ex.muscle = f.muscle.trim() || "Custom";
+      ex.instructions = f.instructions.trim();
+      ex.intensity = f.intensity || "moderate";
+      ex.timed = !!f.timed;
+    }
+    state.editingExId = null;
+    state.editForm = null;
+    saveData();
+    document.getElementById("lib-list").innerHTML = renderLibraryList();
+    return;
   }
   if (action === "set-theme") {
     state.theme = t.dataset.theme;
@@ -1498,24 +2590,38 @@ document.addEventListener("click", (e) => {
       if (doAction === "clear-progress") state.progress = {};
       if (doAction === "reset-routine") state.routine = seedRoutine();
       if (doAction === "reset-routine-blank") state.routine = blankRoutine();
-      if (doAction === "reset-library") state.library = SEED_LIBRARY.slice();
+      if (doAction === "reset-library") { state.library = SEED_LIBRARY.slice(); state.editingExId = null; state.editForm = null; state.confirmDeleteExId = null; }
       if (doAction === "reset-app") {
         state.routine = blankRoutine();
         state.library = SEED_LIBRARY.slice();
         state.equipment = DEFAULT_EQUIPMENT.slice();
         state.progress = {};
-        state.profile = { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[] };
+        state.profile = { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[], availableEquipment:null };
         state.theme = "dark";
         state.palette = "ember";
         state.tab = "today";
         state.libraryEquip = "All";
         state.showManageEquipment = false;
+        state.showSuggestedModal = false;
+        state.confirmUseTemplateId = null;
         state.confirmDeleteExId = null;
+        state.editingExId = null;
+        state.editForm = null;
         state.onboardingDone = false;
         state.showCheckModal = false;
         state.pickerOpen = false;
         state.pendingImport = null;
         state.importError = "";
+        state.bestStreak = 0;
+        state.sessionRotate = false;
+        state.showBadgeModal = false;
+        state.sessionActive = false;
+        state.sessionIndex = 0;
+        state.sessionSets = {};
+        state.sessionTimer = null;
+        state.showAddExercise = false;
+        state.pickerShowAllEquip = false;
+        stopSessionTimer();
       }
       state.confirmingAction = null;
       saveData();
@@ -1558,6 +2664,74 @@ document.addEventListener("click", (e) => {
     closeModalViaBack();
     return;
   }
+  if (action === "open-session") {
+    const blocks = todaysSessionBlocks();
+    const dKey = todayKey();
+    const doneIds = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
+    const firstUndone = blocks.findIndex(b => !doneIds.includes(b.id));
+    state.sessionIndex = firstUndone === -1 ? 0 : firstUndone;
+    state.sessionSets = {};
+    state.sessionTimer = null;
+    state.sessionActive = true;
+    pushHistory();
+    render(); return;
+  }
+  if (action === "close-session") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    stopSessionTimer();
+    closeModalViaBack();
+    return;
+  }
+  if (action === "session-next") {
+    stopSessionTimer();
+    state.sessionIndex = Math.min(state.sessionIndex + 1, todaysSessionBlocks().length);
+    render(); return;
+  }
+  if (action === "session-prev") {
+    stopSessionTimer();
+    state.sessionIndex = Math.max(state.sessionIndex - 1, 0);
+    render(); return;
+  }
+  if (action === "session-mark-done") {
+    stopSessionTimer();
+    const blocks = todaysSessionBlocks();
+    const block = blocks[state.sessionIndex];
+    if (block) {
+      if (block.durationSec === undefined) state.sessionSets[block.id] = block.sets || 1;
+      markSessionBlockDone(block);
+    }
+    sessionAdvance(blocks);
+    render(); return;
+  }
+  if (action === "session-log-set") {
+    const blocks = todaysSessionBlocks();
+    const block = blocks[state.sessionIndex];
+    if (!block) return;
+    const logged = (state.sessionSets[block.id] || 0) + 1;
+    state.sessionSets[block.id] = logged;
+    const justCompleted = logged >= (block.sets || 1);
+    if (justCompleted) markSessionBlockDone(block);
+    // Rotating mode cycles to the next exercise after every single set,
+    // circuit-style, even if this one still has sets left. The default
+    // mode only advances once the current exercise is fully done.
+    if (state.sessionRotate || justCompleted) sessionAdvance(blocks);
+    render(); return;
+  }
+  if (action === "session-timer-start") {
+    const block = todaysSessionBlocks()[state.sessionIndex];
+    if (block) startSessionTimer(block);
+    render(); return;
+  }
+  if (action === "session-timer-pause") {
+    stopSessionTimer();
+    render(); return;
+  }
+  if (action === "session-timer-reset") {
+    stopSessionTimer();
+    const block = todaysSessionBlocks()[state.sessionIndex];
+    if (block) state.sessionTimer = { blockId: block.id, remaining: block.durationSec, total: block.durationSec, running: false };
+    render(); return;
+  }
   if (action === "goto-profile") {
     state.showCheckModal = false;
     state.tab = "settings";
@@ -1580,6 +2754,8 @@ document.addEventListener("click", (e) => {
     if (saved.palette) state.palette = saved.palette;
     if (saved.profile) state.profile = migrateProfile(saved.profile);
     if (saved.onboardingDone) state.onboardingDone = saved.onboardingDone;
+    if (typeof saved.bestStreak === "number") state.bestStreak = saved.bestStreak;
+    if (typeof saved.sessionRotate === "boolean") state.sessionRotate = saved.sessionRotate;
   }
   if (state.onboardingDone) replaceHistory();
   render();

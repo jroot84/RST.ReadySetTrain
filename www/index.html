@@ -755,22 +755,36 @@ async function exportBackup() {
   const stamp = new Date().toISOString().slice(0, 10);
   const filename = "rst-backup-" + stamp + ".json";
   const json = JSON.stringify(payload, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
+  const shareTitle = "RST Backup";
+  const shareText = "RST backup — " + stamp;
 
   // Prefer the native share sheet — it's the only way a web app can hand a
   // file straight to another app (OneDrive, Google Drive, Files, etc.)
-  // instead of just dropping it in the browser's Downloads folder.
-  try {
-    const file = new File([blob], filename, { type: "application/json" });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: "RST Backup", text: "RST backup — " + stamp });
-      return;
+  // instead of just dropping it in the browser's Downloads folder. This
+  // requires a secure context (https, or localhost) — navigator.share
+  // won't exist at all otherwise, and we'll silently fall through to a
+  // plain download below.
+  if (typeof navigator.share === "function") {
+    // Some browsers only offer file-sharing targets for a handful of
+    // "known" MIME types and quietly exclude application/json from that
+    // list. canShare() is only a hint (some browsers implement it
+    // inaccurately), so we skip a candidate it explicitly rejects but
+    // still attempt sharing if canShare is unavailable or uncertain.
+    const mimeCandidates = ["application/json", "text/plain"];
+    for (const mime of mimeCandidates) {
+      const file = new File([json], filename, { type: mime });
+      if (navigator.canShare && !navigator.canShare({ files: [file] })) continue;
+      try {
+        await navigator.share({ files: [file], title: shareTitle, text: shareText });
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return; // user backed out of the share sheet
+        // try the next MIME type
+      }
     }
-  } catch (err) {
-    if (err && err.name === "AbortError") return; // user cancelled the share sheet
-    // any other error — fall through to a plain download
   }
 
+  const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1444,16 +1458,15 @@ function renderBuilder() {
   html += '</div>';
 
   html += '<div class="card">';
-  html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">';
-  html += '<input class="day-label-input font-display" data-action="edit-day-label" value="'+esc(day.label)+'" />';
-  html += '<div class="type-toggle">';
+  html += '<input class="day-label-input font-display" data-action="edit-day-label" value="'+esc(day.label)+'" style="display:block;width:100%;margin-bottom:12px;" />';
+  html += '<div class="type-toggle" style="width:100%;margin-bottom:14px;">';
   ["strength","cardio","rest"].forEach(t => {
     const active = t === "rest" ? !!day.isRest : (day.type===t && !day.isRest);
     const confirming = t === "rest" && state.confirmingAction === "rest-day";
     const label = confirming ? "confirm?" : t;
-    html += '<button class="'+(active?"active "+t:"")+'" data-action="set-day-type" data-type="'+t+'">'+icon(t==="cardio"?"wind":(t==="rest"?"moon":"flame"),11)+label+'</button>';
+    html += '<button style="flex:1;justify-content:center;" class="'+(active?"active "+t:"")+'" data-action="set-day-type" data-type="'+t+'">'+icon(t==="cardio"?"wind":(t==="rest"?"moon":"flame"),11)+label+'</button>';
   });
-  html += '</div></div>';
+  html += '</div>';
 
   if (day.blocks.length === 0) {
     html += '<div class="empty-note" style="margin-bottom:12px;">'+(day.isRest ? "Set as a rest day — no exercises needed. Add one below if you change your mind." : "No exercises yet — add one below.")+'</div>';

@@ -753,7 +753,7 @@ async function exportBackup() {
     bestStreak: state.bestStreak, sessionRotate: state.sessionRotate,
   };
   const stamp = new Date().toISOString().slice(0, 10);
-  const filename = "rst-backup-" + stamp + ".json";
+  const baseName = "rst-backup-" + stamp;
   const json = JSON.stringify(payload, null, 2);
   const shareTitle = "RST Backup";
   const shareText = "RST backup — " + stamp;
@@ -765,21 +765,26 @@ async function exportBackup() {
   // won't exist at all otherwise, and we'll silently fall through to a
   // plain download below.
   if (typeof navigator.share === "function") {
-    // Some browsers only offer file-sharing targets for a handful of
-    // "known" MIME types and quietly exclude application/json from that
-    // list. canShare() is only a hint (some browsers implement it
-    // inaccurately), so we skip a candidate it explicitly rejects but
-    // still attempt sharing if canShare is unavailable or uncertain.
-    const mimeCandidates = ["application/json", "text/plain"];
-    for (const mime of mimeCandidates) {
-      const file = new File([json], filename, { type: mime });
+    // Chromium's share implementation checks the MIME type AND the file
+    // extension together against an internal safelist — text/plain only
+    // passes if the name actually ends in .txt, so the extension has to
+    // change along with the MIME type, not just the MIME type alone.
+    // canShare() is only a hint (some browsers implement it inaccurately),
+    // so we skip a candidate it explicitly rejects but still attempt
+    // sharing if canShare is unavailable or uncertain.
+    const candidates = [
+      { name: baseName + ".json", type: "application/json" },
+      { name: baseName + ".txt", type: "text/plain" },
+    ];
+    for (const c of candidates) {
+      const file = new File([json], c.name, { type: c.type });
       if (navigator.canShare && !navigator.canShare({ files: [file] })) continue;
       try {
         await navigator.share({ files: [file], title: shareTitle, text: shareText });
         return;
       } catch (err) {
         if (err && err.name === "AbortError") return; // user backed out of the share sheet
-        // try the next MIME type
+        // try the next candidate
       }
     }
   }
@@ -788,7 +793,7 @@ async function exportBackup() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename;
+  a.download = baseName + ".json";
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -813,7 +818,7 @@ function handleImportFile(file) {
         state.pendingImport = { fileName: file.name, data: parsed };
       }
     } catch (e) {
-      state.importError = "Couldn't read that file — make sure it's an RST backup (.json).";
+      state.importError = "Couldn't read that file — make sure it's an RST backup (.json or .txt).";
       state.pendingImport = null;
     }
     render();
@@ -2060,14 +2065,14 @@ function renderSettingsSection(id) {
     html += settingsSectionHeader("Backup");
     html += '<div class="card">';
     html += '<div class="settings-item-row" style="border-top:none;padding-top:0;margin-top:0;">';
-    html += '<div><div class="settings-title">Export backup</div><div class="settings-desc">Shares a .json file with your routine, library, progress, and profile — save it straight to OneDrive, Drive, Files, or any app you choose.</div></div>';
+    html += '<div><div class="settings-title">Export backup</div><div class="settings-desc">Shares a backup file with your routine, library, progress, and profile — save it straight to OneDrive, Drive, Files, or any app you choose.</div></div>';
     html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="export-backup">'+icon("download",12)+' Export</button>';
     html += '</div>';
     html += '<div class="settings-item-row">';
-    html += '<div><div class="settings-title">Import backup</div><div class="settings-desc">Restores from a previously exported .json file. Replaces all current data.</div></div>';
+    html += '<div><div class="settings-title">Import backup</div><div class="settings-desc">Restores from a previously exported backup file (.json or .txt). Replaces all current data.</div></div>';
     html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="trigger-import">'+icon("upload",12)+' Import</button>';
     html += '</div>';
-    html += '<input type="file" id="import-file-input" accept="application/json,.json" style="display:none;" />';
+    html += '<input type="file" id="import-file-input" accept="application/json,.json,text/plain,.txt" style="display:none;" />';
     if (state.importError) {
       html += '<div class="foot-note" style="padding-top:10px;"><span style="color:var(--ember);display:flex;">'+icon("alert",13)+'</span><p style="color:var(--ember-tag);">'+esc(state.importError)+'</p></div>';
     }

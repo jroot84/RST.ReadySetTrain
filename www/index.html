@@ -764,27 +764,23 @@ async function exportBackup() {
   // requires a secure context (https, or localhost) — navigator.share
   // won't exist at all otherwise, and we'll silently fall through to a
   // plain download below.
+  //
+  // Only text/plain + a .txt extension is attempted (not application/json):
+  // navigator.share() spends the click's one-shot "user activation" the
+  // moment it's called, whether it succeeds or throws, so trying a second
+  // MIME type after a failed first attempt never actually gets a fair shot.
+  // text/plain + .txt is the pairing browsers' share safelists accept, so
+  // it's the one worth using.
   if (typeof navigator.share === "function") {
-    // Chromium's share implementation checks the MIME type AND the file
-    // extension together against an internal safelist — text/plain only
-    // passes if the name actually ends in .txt, so the extension has to
-    // change along with the MIME type, not just the MIME type alone.
-    // canShare() is only a hint (some browsers implement it inaccurately),
-    // so we skip a candidate it explicitly rejects but still attempt
-    // sharing if canShare is unavailable or uncertain.
-    const candidates = [
-      { name: baseName + ".json", type: "application/json" },
-      { name: baseName + ".txt", type: "text/plain" },
-    ];
-    for (const c of candidates) {
-      const file = new File([json], c.name, { type: c.type });
-      if (navigator.canShare && !navigator.canShare({ files: [file] })) continue;
+    const file = new File([json], baseName + ".txt", { type: "text/plain" });
+    const canShareOk = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
+    if (canShareOk) {
       try {
         await navigator.share({ files: [file], title: shareTitle, text: shareText });
         return;
       } catch (err) {
         if (err && err.name === "AbortError") return; // user backed out of the share sheet
-        // try the next candidate
+        // fall through to download
       }
     }
   }

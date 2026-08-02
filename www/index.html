@@ -195,6 +195,19 @@
   .settings-desc { font-family:'JetBrains Mono',monospace; font-size:10px; margin-top:2px; line-height:1.5; color: var(--chalk-dim); max-width: 220px; }
   .action-btn { flex-shrink:0; display:flex; align-items:center; gap:6px; padding:8px 12px; border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.06em; border:1px solid var(--ember); color: var(--ember); }
   .about-row { display:flex; align-items:center; gap:10px; }
+  .settings-search { display:flex; align-items:center; gap:10px; background:var(--bg900); border:1px solid var(--line); border-radius:12px; padding:11px 14px; margin-bottom:18px; }
+  .settings-search input { flex:1; min-width:0; background:transparent; border:none; outline:none; color:var(--chalk); font-family:'JetBrains Mono',monospace; font-size:13px; }
+  .settings-search input::placeholder { color:var(--chalk-dim); }
+  .settings-menu-list { display:flex; flex-direction:column; }
+  .settings-menu-row { display:flex; align-items:center; gap:14px; width:100%; text-align:left; padding:12px 4px; color:inherit; border-radius:10px; }
+  .settings-menu-row:active { background:var(--bg800); }
+  .settings-menu-icon { flex-shrink:0; width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center; color:#fff; }
+  .settings-menu-label { font-weight:600; font-size:15px; color: var(--chalk); }
+  .settings-menu-desc { font-family:'JetBrains Mono',monospace; font-size:10px; margin-top:2px; line-height:1.4; color: var(--chalk-dim); }
+  .settings-menu-chevron { flex-shrink:0; color: var(--chalk-dim); display:flex; }
+  .settings-menu-empty { text-align:center; padding:32px 14px; color:var(--chalk-dim); font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .settings-section-head { display:flex; align-items:center; margin-bottom:14px; }
+  .settings-back-btn { display:flex; align-items:center; gap:2px; color: var(--chalk-dim); font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; padding:4px 4px 4px 0; }
 
   @keyframes stampIn { 0% { transform: scale(1.6) rotate(-8deg); opacity: 0; } 60% { transform: scale(0.92) rotate(-8deg); opacity: 1; } 100% { transform: scale(1) rotate(-8deg); opacity: 1; } }
   .stamp-anim { animation: stampIn 0.28s ease-out; }
@@ -664,6 +677,35 @@ function templateStats(routine) {
 /* ------------------------------------------------------------------ */
 function dateKey(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function todayKey(){ return dateKey(new Date()); }
+function isEditableDate(d){ return dateKey(d) === todayKey(); }
+function isPastDate(d){ return dateKey(d) < todayKey(); }
+
+/* ------------------------------------------------------------------ */
+/* Anti-cheat: clock-tamper detection                                   */
+/* A day can only ever be completed while it IS that day (see           */
+/* isEditableDate + the toggle-done / session guards below). The one    */
+/* way around that from inside the app is winding the device clock      */
+/* back, so we keep a high-water mark of the last time the app was seen */
+/* running and flag it if "now" ever jumps backward more than a small   */
+/* tolerance (allows for normal timezone/DST shifts while still         */
+/* catching someone rolling the clock back a day or more to backdate a  */
+/* workout).                                                            */
+/* ------------------------------------------------------------------ */
+const CLOCK_KEY = "rst-last-seen-ts";
+const CLOCK_TOLERANCE_MS = 3 * 60 * 60 * 1000; // 3 hours
+function checkClockIntegrity() {
+  const now = Date.now();
+  let last = 0;
+  try { last = parseInt(localStorage.getItem(CLOCK_KEY) || "0", 10) || 0; } catch (e) {}
+  if (last && now < last - CLOCK_TOLERANCE_MS) {
+    state.clockWarning = true;
+    return;
+  }
+  state.clockWarning = false;
+  if (!last || now > last) {
+    try { localStorage.setItem(CLOCK_KEY, String(now)); } catch (e) {}
+  }
+}
 function fmtDuration(sec){ if(!sec) return ""; if (sec % 60 === 0) return (sec/60)+" min"; return sec+" sec"; }
 function fmtClock(sec){ sec = Math.max(0, Math.round(sec)); const m = Math.floor(sec/60); const s = sec%60; return m+":"+String(s).padStart(2,"0"); }
 function youtubeSearchUrl(name){ return "https://www.youtube.com/results?search_query="+encodeURIComponent("how to "+name+" exercise proper form"); }
@@ -703,19 +745,36 @@ function saveData() {
 /* ------------------------------------------------------------------ */
 /* Backup export / import                                               */
 /* ------------------------------------------------------------------ */
-function exportBackup() {
+async function exportBackup() {
   const payload = {
     app: "RST", version: 1, exportedAt: new Date().toISOString(),
     routine: state.routine, library: state.library, equipment: state.equipment, progress: state.progress,
     theme: state.theme, palette: state.palette, profile: state.profile, onboardingDone: state.onboardingDone,
     bestStreak: state.bestStreak, sessionRotate: state.sessionRotate,
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const stamp = new Date().toISOString().slice(0, 10);
+  const filename = "rst-backup-" + stamp + ".json";
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+
+  // Prefer the native share sheet — it's the only way a web app can hand a
+  // file straight to another app (OneDrive, Google Drive, Files, etc.)
+  // instead of just dropping it in the browser's Downloads folder.
+  try {
+    const file = new File([blob], filename, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "RST Backup", text: "RST backup — " + stamp });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") return; // user cancelled the share sheet
+    // any other error — fall through to a plain download
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const stamp = new Date().toISOString().slice(0, 10);
   a.href = url;
-  a.download = "rst-backup-" + stamp + ".json";
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -836,6 +895,7 @@ const state = {
   librarySearch: "",
   libraryEquip: "All",
   showAddExercise: false,
+  showEditExercise: false,
   showManageEquipment: false,
   showSuggestedModal: false,
   confirmUseTemplateId: null,
@@ -852,6 +912,9 @@ const state = {
   importError: "",
   bestStreak: 0,
   showBadgeModal: false,
+  clockWarning: false,     // true when the device clock appears to have been rolled back
+  settingsSection: null,   // null = category menu; otherwise the open section's id
+  settingsSearch: "",
   // Exercise session
   sessionActive: false,
   sessionIndex: 0,
@@ -877,7 +940,7 @@ function applyTheme() {
 let applyingPopState = false;
 
 function historySnapshot() {
-  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal, showManageEquipment: state.showManageEquipment, showSuggestedModal: state.showSuggestedModal, showAddExercise: state.showAddExercise, sessionActive: state.sessionActive, showBadgeModal: state.showBadgeModal };
+  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal, showManageEquipment: state.showManageEquipment, showSuggestedModal: state.showSuggestedModal, showAddExercise: state.showAddExercise, showEditExercise: state.showEditExercise, sessionActive: state.sessionActive, showBadgeModal: state.showBadgeModal, settingsSection: state.settingsSection };
 }
 function pushHistory() {
   if (applyingPopState) return;
@@ -898,7 +961,7 @@ function replaceHistory() {
 function closeModalViaBack() {
   // If the current history entry represents the open modal, let the
   // browser's own back navigation close it (keeps stack consistent).
-  if (history.state && (history.state.pickerOpen || history.state.showCheckModal || history.state.showManageEquipment || history.state.showSuggestedModal || history.state.showAddExercise || history.state.sessionActive || history.state.showBadgeModal)) {
+  if (history.state && (history.state.pickerOpen || history.state.showCheckModal || history.state.showManageEquipment || history.state.showSuggestedModal || history.state.showAddExercise || history.state.showEditExercise || history.state.sessionActive || history.state.showBadgeModal || history.state.settingsSection)) {
     history.back();
   } else {
     state.pickerOpen = false;
@@ -906,23 +969,27 @@ function closeModalViaBack() {
     state.showManageEquipment = false;
     state.showSuggestedModal = false;
     state.showAddExercise = false;
+    state.showEditExercise = false;
     state.sessionActive = false;
     state.showBadgeModal = false;
+    state.settingsSection = null;
     render();
   }
 }
 window.addEventListener("popstate", (e) => {
   if (!state.onboardingDone) return; // nothing to navigate before setup is done
   applyingPopState = true;
-  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false, showManageEquipment: false, showSuggestedModal: false, showAddExercise: false, sessionActive: false, showBadgeModal: false };
+  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false, showManageEquipment: false, showSuggestedModal: false, showAddExercise: false, showEditExercise: false, sessionActive: false, showBadgeModal: false, settingsSection: null };
   state.tab = snap.tab;
   state.pickerOpen = !!snap.pickerOpen;
   state.showCheckModal = !!snap.showCheckModal;
   state.showManageEquipment = !!snap.showManageEquipment;
   state.showSuggestedModal = !!snap.showSuggestedModal;
   state.showAddExercise = !!snap.showAddExercise;
+  state.showEditExercise = !!snap.showEditExercise;
   state.sessionActive = !!snap.sessionActive;
   state.showBadgeModal = !!snap.showBadgeModal;
+  state.settingsSection = snap.settingsSection || null;
   stopSessionTimer();
   render();
   applyingPopState = false;
@@ -1162,17 +1229,24 @@ function renderDayTag(type, isRest) {
   return '<span class="day-tag '+(isCardio?"cardio":"strength")+'">'+icon(isCardio?"wind":"flame",11)+(isCardio?"Cardio":"Strength")+'</span>';
 }
 
-function renderBlockRow(block, exercise, done) {
+function renderBlockRow(block, exercise, done, locked) {
   const name = exercise ? esc(exercise.name) : "Unknown exercise";
   const meta = block.durationSec
     ? fmtDuration(block.durationSec)
     : (block.sets+" × "+block.repsMin+(block.repsMax && block.repsMax !== block.repsMin ? "-"+block.repsMax : "")+" reps");
-  const open = !!state.openInfo[block.id];
+  // Instructions/video are expanded by default; collapsing one is a
+  // per-block override remembered in state.openInfo.
+  const open = state.openInfo[block.id] !== false;
   const canExpand = !!exercise;
   let html = '<div class="block-row '+(done?"done":"")+'" data-block-id="'+block.id+'">';
   html += '  <div class="block-row-main">';
-  html += '    <button class="check-btn '+(done?"done stamp-anim":"")+'" data-action="toggle-done" data-block-id="'+block.id+'">'+(done?icon("check",16):"")+'</button>';
-  html += '    <button class="block-btn" data-action="toggle-done" data-block-id="'+block.id+'">';
+  if (locked) {
+    html += '    <span class="check-btn locked" aria-hidden="true" style="opacity:0.5;">'+(done?icon("check",16):icon("lock",13))+'</span>';
+    html += '    <button class="block-btn" data-action="toggle-info" data-info-id="'+block.id+'">';
+  } else {
+    html += '    <button class="check-btn '+(done?"done stamp-anim":"")+'" data-action="toggle-done" data-block-id="'+block.id+'">'+(done?icon("check",16):"")+'</button>';
+    html += '    <button class="block-btn" data-action="toggle-done" data-block-id="'+block.id+'">';
+  }
   html += '      <div class="block-name">'+name+'</div>';
   html += '      <div class="block-meta">'+meta+(block.note ? ' <span class="note">· '+esc(block.note)+'</span>' : '')+'</div>';
   html += '    </button>';
@@ -1249,10 +1323,14 @@ function renderToday() {
   html += '<button class="info-btn" style="border:1px solid var(--line);border-radius:3px;width:auto;padding:6px 8px;flex-shrink:0;" data-action="open-check-modal" aria-label="Check My Workout">'+icon("activity",16)+'</button>';
   html += '</div>';
 
+  if (state.clockWarning) {
+    html += '<div class="foot-note" style="background:var(--ember-wash);border:1px solid var(--ember);border-radius:8px;padding:10px 12px;margin-bottom:16px;"><span style="color:var(--ember);display:flex;flex-shrink:0;">'+icon("alert",14)+'</span><p style="margin:0;">Your device clock looks like it moved backward. Workout completion is paused until it\'s corrected — this prevents backdating streaks.</p></div>';
+  }
+
   if (allDone) {
     html += '<div class="banner">'+icon("flame",16)+' Workout complete. Forged today.</div>';
   } else if (day.blocks.length > 0) {
-    html += '<button class="btn-primary" style="width:100%;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px;" data-action="open-session">'+icon("zap",15)+' Start Session</button>';
+    html += '<button class="btn-primary" style="width:100%;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px;" data-action="open-session" '+(state.clockWarning?"disabled":"")+'>'+icon("zap",15)+' Start Session</button>';
   }
 
   if (day.isRest) {
@@ -1260,7 +1338,7 @@ function renderToday() {
   } else if (day.blocks.length === 0) {
     html += '<div class="empty-note">Nothing scheduled yet — add exercises in Routine, or mark this a rest day.</div>';
   } else {
-    day.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), done.includes(b.id)); });
+    day.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), done.includes(b.id), false); });
   }
   return html;
 }
@@ -1323,17 +1401,22 @@ function renderCalendar() {
   });
   html += '</div></div>';
 
+  const selLocked = !isEditableDate(state.selectedDate);
+
   html += '<div class="section-label font-mono">'+state.selectedDate.toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"})+'</div>';
   html += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0 14px;">';
   html += '<h3 class="font-display" style="margin:0;font-size:20px;text-transform:uppercase;letter-spacing:0.03em;">'+esc(selDay.label)+'</h3>';
   html += renderDayTag(selDay.type, selDay.isRest);
   html += '</div>';
+  if (selLocked && selDay.blocks.length > 0) {
+    html += '<div class="foot-note" style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:14px;">'+icon("lock",13)+'<p style="margin:0;">'+(isPastDate(state.selectedDate)?"Past days are locked — workouts can only be checked off on the day they happen.":"Future days are locked — you can preview them, but can\'t check them off early.")+'</p></div>';
+  }
   if (selDay.isRest) {
     html += '<div class="empty-note">'+icon("moon",14)+' Rest day — recovery is part of the plan.</div>';
   } else if (selDay.blocks.length === 0) {
     html += '<div class="empty-note">Nothing scheduled — add exercises in Routine, or mark this a rest day.</div>';
   } else {
-    selDay.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), selDone.includes(b.id)); });
+    selDay.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), selDone.includes(b.id), selLocked); });
   }
   return html;
 }
@@ -1612,9 +1695,11 @@ function startSessionTimer(block) {
     if (fillEl) fillEl.style.width = Math.max(0, (state.sessionTimer.remaining / state.sessionTimer.total) * 100) + "%";
     if (state.sessionTimer.remaining <= 0) {
       stopSessionTimer();
-      const blocks = todaysSessionBlocks();
-      markSessionBlockDone(blocks[state.sessionIndex]);
-      sessionAdvance(blocks);
+      if (!state.clockWarning) {
+        const blocks = todaysSessionBlocks();
+        markSessionBlockDone(blocks[state.sessionIndex]);
+        sessionAdvance(blocks);
+      }
       render();
     }
   }, 1000);
@@ -1676,11 +1761,36 @@ function renderSessionModal() {
   }
   if (block.note) html += '<div class="foot-note">'+icon("info",13)+'<p>'+esc(block.note)+'</p></div>';
 
-  html += '<div class="form-row-2" style="margin-top:10px;">';
-  html += '<button class="btn-outline" '+(state.sessionIndex===0?"disabled":"")+' data-action="session-prev">'+icon("chevronLeft",14)+' Back</button>';
-  html += '<button class="btn-outline" data-action="session-mark-done">'+icon("check",14)+' Mark all sets done</button>';
+  // Button layout, bottom to top of intent:
+  //  - "Mark exercise complete" is a deliberate shortcut that finishes this
+  //    exercise outright (skips logging sets / running the timer out) and
+  //    moves on automatically — kept on its own row since it's a distinct
+  //    action from browsing.
+  //  - Previous / Next are pure navigation between exercises. Next is
+  //    labeled "Skip" whenever the current exercise isn't actually done yet,
+  //    so it's clear that moving on will NOT mark it complete.
+  const blockDone = isSessionBlockComplete(block);
+  const isLast = state.sessionIndex === blocks.length - 1;
+  let nextLabel;
+  if (isLast) nextLabel = blockDone ? "Finish" : "Skip & finish";
+  else nextLabel = blockDone ? "Next exercise" : "Skip exercise";
+
+  html += '<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">';
+  html += '<button class="btn-outline" style="width:100%;" data-action="session-mark-done">'+icon("check",14)+' Mark exercise complete</button>';
+  html += '<div class="settings-desc" style="max-width:none;text-align:center;margin-top:6px;">Finishes this exercise without logging '+(isDuration?"the timer":"each set")+' — moves on to the next one automatically.</div>';
   html += '</div>';
-  html += '<button class="btn-primary" style="width:100%;margin-top:8px;" data-action="session-next">'+(state.sessionIndex===blocks.length-1?"Finish":"Next exercise")+' '+icon("chevronRight",14)+'</button>';
+
+  html += '<div class="form-row-2" style="margin-top:14px;">';
+  html += '<button class="btn-outline" '+(state.sessionIndex===0?"disabled":"")+' data-action="session-prev">'+icon("chevronLeft",14)+' Previous</button>';
+  html += '<button class="btn-primary" data-action="session-next">'+nextLabel+' '+icon("chevronRight",14)+'</button>';
+  html += '</div>';
+
+  if (ex) {
+    html += '<div class="block-detail" style="border-top:1px solid var(--line);padding:14px 0 0;margin-top:16px;">';
+    if (ex.instructions) html += '<p>'+esc(ex.instructions)+'</p>';
+    html += '<a class="yt-link" href="'+youtubeSearchUrl(ex.name)+'" target="_blank" rel="noopener noreferrer">'+icon("youtube",14)+' Watch "'+esc(ex.name)+'" on YouTube</a>';
+    html += '</div>';
+  }
 
   html += '</div></div></div>';
   return html;
@@ -1754,31 +1864,13 @@ function renderLibraryList() {
   filtered.forEach(ex => {
     const open = !!state.openInfo["lib-"+ex.id];
     const hidden = !!ex.hidden;
-    const editing = state.editingExId === ex.id;
-    html += '<div class="lib-row" style="'+(hidden && !editing?"opacity:0.55;":"")+'">';
+    html += '<div class="lib-row" style="'+(hidden?"opacity:0.55;":"")+'">';
     html += '<button class="lib-row-head" data-action="toggle-lib-info" data-ex-id="'+ex.id+'">';
     html += '<div><div class="lname">'+esc(ex.name)+(ex.timed?' <span class="day-tag cardio" style="margin-left:6px;">Timed</span>':'')+(hidden?' <span class="day-tag strength" style="margin-left:6px;">Hidden</span>':'')+'</div><div class="lmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+' · '+intensityLabel(ex.intensity)+'</div></div>';
     html += '<div class="lib-row-icons">'+(ex.timed?'<span style="color:var(--cyan);display:flex;">'+icon("clock",15)+'</span>':'')+'<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",16)+'</span>';
     html += '<span style="display:flex;color:var(--chalk-dim);transform:'+(open?"rotate(180deg)":"none")+';transition:transform .15s;">'+icon("chevronDown",15)+'</span></div>';
     html += '</button>';
-    if (open && editing) {
-      const f = state.editForm;
-      html += '<div class="lib-detail">';
-      html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-name" placeholder="Exercise name" value="'+esc(f.name)+'" />';
-      html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-muscle" placeholder="Muscle group" value="'+esc(f.muscle)+'" />';
-      html += '<textarea class="text-input" style="margin-bottom:10px;" id="edit-ex-instructions" rows="2" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
-      html += '<div class="form-row-2" style="margin-bottom:10px;">';
-      html += '<select class="select-input" id="edit-ex-equipment">'+state.equipment.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
-      html += '<select class="select-input" id="edit-ex-category"><option value="strength" '+(f.category==="strength"?"selected":"")+'>Strength</option><option value="cardio" '+(f.category==="cardio"?"selected":"")+'>Cardio</option></select>';
-      html += '</div>';
-      html += '<select class="select-input" style="margin-bottom:10px;width:100%;" id="edit-ex-intensity">'+INTENSITY_LEVELS.map(l=>'<option value="'+l.id+'" '+(f.intensity===l.id?"selected":"")+'>'+l.label+' intensity</option>').join('')+'</select>';
-      html += '<button type="button" class="btn-outline" style="width:100%;justify-content:flex-start;display:flex;align-items:center;gap:8px;text-align:left;margin-bottom:12px;'+(f.timed?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="toggle-edit-timed">'+icon(f.timed?"check":"clock",14)+' Timed exercise (hold/duration instead of sets &amp; reps)</button>';
-      html += '<div class="form-row-2">';
-      html += '<button class="btn-primary" data-action="save-edit-exercise">Save</button>';
-      html += '<button class="btn-outline" data-action="cancel-edit-exercise">Cancel</button>';
-      html += '</div>';
-      html += '</div>';
-    } else if (open) {
+    if (open) {
       html += '<div class="lib-detail">';
       if (ex.instructions) html += '<p>'+esc(ex.instructions)+'</p>';
       html += '<a class="yt-link" href="'+youtubeSearchUrl(ex.name)+'" target="_blank" rel="noopener noreferrer">'+icon("youtube",14)+' Watch "'+esc(ex.name)+'" on YouTube</a>';
@@ -1798,107 +1890,199 @@ function renderLibraryList() {
   return html;
 }
 
+function renderEditExerciseModal() {
+  const f = state.editForm;
+  if (!f) return "";
+  let html = '<div class="modal-overlay" data-action="cancel-edit-exercise">';
+  html += '<div class="modal" style="max-height:85vh;">';
+  html += '<div class="modal-head"><span class="font-display">Edit exercise</span><button data-action="cancel-edit-exercise">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+  html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-name" placeholder="Exercise name" value="'+esc(f.name)+'" />';
+  html += '<input class="text-input" style="margin-bottom:10px;" id="edit-ex-muscle" placeholder="Muscle group" value="'+esc(f.muscle)+'" />';
+  html += '<textarea class="text-input" style="margin-bottom:10px;" id="edit-ex-instructions" rows="2" placeholder="Instructions (optional)">'+esc(f.instructions)+'</textarea>';
+  html += '<div class="form-row-2" style="margin-bottom:10px;">';
+  html += '<select class="select-input" id="edit-ex-equipment">'+state.equipment.map(eq=>'<option '+(f.equipment===eq?"selected":"")+'>'+eq+'</option>').join('')+'</select>';
+  html += '<select class="select-input" id="edit-ex-category"><option value="strength" '+(f.category==="strength"?"selected":"")+'>Strength</option><option value="cardio" '+(f.category==="cardio"?"selected":"")+'>Cardio</option></select>';
+  html += '</div>';
+  html += '<select class="select-input" style="margin-bottom:10px;width:100%;" id="edit-ex-intensity">'+INTENSITY_LEVELS.map(l=>'<option value="'+l.id+'" '+(f.intensity===l.id?"selected":"")+'>'+l.label+' intensity</option>').join('')+'</select>';
+  html += '<button type="button" class="btn-outline" style="width:100%;justify-content:flex-start;display:flex;align-items:center;gap:8px;text-align:left;'+(f.timed?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="toggle-edit-timed">'+icon(f.timed?"check":"clock",14)+' Timed exercise (hold/duration instead of sets &amp; reps)</button>';
+  html += '</div>';
+  html += '<div style="padding:12px 16px 16px;display:flex;gap:8px;">';
+  html += '<button class="btn-primary" style="flex:1;" data-action="save-edit-exercise">Save</button>';
+  html += '<button class="btn-outline" style="flex:1;" data-action="cancel-edit-exercise">Cancel</button>';
+  html += '</div>';
+  html += '</div></div>';
+  return html;
+}
+
 /* ------------------------------------------------------------------ */
 /* Render: Settings                                                     */
 /* ------------------------------------------------------------------ */
-function renderSettings() {
-  const p = state.profile;
-  let html = '<div class="settings-block"><div class="section-label font-mono">Profile &amp; Goals</div><div class="card">';
-  html += '<div class="form-row-2" style="margin-bottom:10px;">';
-  html += '<select class="select-input" id="prof-gender"><option value="">Gender</option>'+GENDERS.map(g=>'<option value="'+g.id+'" '+(p.gender===g.id?"selected":"")+'>'+g.label+'</option>').join('')+'</select>';
-  html += '<input class="text-input" id="prof-age" type="number" min="0" placeholder="Age" value="'+esc(p.age)+'" />';
-  html += '</div>';
-  html += '<div class="form-row-2" style="margin-bottom:10px;">';
-  html += '<input class="text-input" id="prof-height-ft" type="number" min="0" placeholder="Height (ft)" value="'+esc(p.heightFt)+'" />';
-  html += '<input class="text-input" id="prof-height-in" type="number" min="0" max="11" placeholder="Height (in)" value="'+esc(p.heightIn)+'" />';
-  html += '</div>';
-  html += '<div class="form-row-2" style="margin-bottom:10px;">';
-  html += '<input class="text-input" id="prof-weight" type="number" min="0" placeholder="Weight (lbs)" value="'+esc(p.weightLbs)+'" />';
-  html += '</div>';
-  html += renderGoalPicker(p.goals);
-  html += renderEquipmentOwnedPicker();
-  html += '<div class="settings-desc" style="max-width:none;margin:10px 0 12px;">Used only to tailor the suggestions in "Check My Workout." Saved on this device.</div>';
-  html += '<button class="dashed-btn" data-action="open-check-modal">'+icon("activity",14)+' Check My Workout</button>';
-  html += '</div></div>';
+const SETTINGS_SECTIONS = [
+  { id: "profile",     label: "Profile & Goals",   desc: "Body stats, goals, and equipment you own", icon: "activity",  color: "#E0446B" },
+  { id: "appearance",  label: "Appearance",        desc: "Theme and accent color",                    icon: "sun",       color: "#3B82F6" },
+  { id: "session",     label: "Workout Session",   desc: "How Start Session moves between exercises", icon: "zap",       color: "#E8622C" },
+  { id: "data",        label: "Routine & Library", desc: "Suggested routines, resets",                icon: "repeat",    color: "#43A047" },
+  { id: "backup",      label: "Backup",            desc: "Export or import your data",                icon: "download",  color: "#8B5CF6" },
+  { id: "danger",      label: "Danger Zone",       desc: "Erase everything on this device",            icon: "alert",     color: "#DC2626" },
+  { id: "about",       label: "About",             desc: "App info",                                  icon: "info",      color: "#8A93A6" },
+];
 
-  html += '<div class="settings-block"><div class="section-label font-mono">Appearance</div>';
-  html += '<div class="card"><div class="settings-item-row">';
-  html += '<div><div class="settings-title">Theme</div><div class="settings-desc">Switch between light and dark rig</div></div>';
-  html += '<div class="settings-toggle">';
-  html += '<button class="'+(state.theme==="dark"?"active":"")+'" data-action="set-theme" data-theme="dark">'+icon("moon",13)+' Dark</button>';
-  html += '<button class="'+(state.theme==="light"?"active":"")+'" data-action="set-theme" data-theme="light">'+icon("sun",13)+' Light</button>';
-  html += '</div></div>';
-  html += '<div style="padding-top:14px;margin-top:14px;border-top:1px solid var(--line);">';
-  html += '<div class="settings-title" style="margin-bottom:2px;">Color</div>';
-  html += '<div class="settings-desc">Pick an accent color for the whole app</div>';
-  html += '<div class="swatch-row">';
-  PALETTES.forEach(pal => {
-    const active = state.palette === pal.id;
-    html += '<button type="button" class="swatch-btn '+(active?"active":"")+'" data-action="set-palette" data-palette="'+pal.id+'">';
-    html += '<span class="swatch-dot" style="background:'+PALETTE_SWATCH[pal.id]+';"></span>';
-    html += '<span class="swatch-label">'+pal.label+'</span>';
+function renderSettings() {
+  return state.settingsSection ? renderSettingsSection(state.settingsSection) : renderSettingsMenu();
+}
+
+function renderSettingsMenu() {
+  let html = '<div class="settings-search">'+icon("search",15)+'<input id="settings-search" placeholder="Search settings" value="'+esc(state.settingsSearch)+'" /></div>';
+  html += '<div id="settings-menu-list">' + renderSettingsMenuList() + '</div>';
+  return html;
+}
+
+function renderSettingsMenuList() {
+  const q = state.settingsSearch.trim().toLowerCase();
+  const sections = q
+    ? SETTINGS_SECTIONS.filter(s => s.label.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q))
+    : SETTINGS_SECTIONS;
+  if (sections.length === 0) {
+    return '<div class="settings-menu-empty">No settings match "'+esc(state.settingsSearch)+'"</div>';
+  }
+  let html = '<div class="settings-menu-list">';
+  sections.forEach(s => {
+    html += '<button class="settings-menu-row" data-action="open-settings-section" data-section="'+s.id+'">';
+    html += '<span class="settings-menu-icon" style="background:'+s.color+';">'+icon(s.icon,18)+'</span>';
+    html += '<span style="flex:1;min-width:0;">';
+    html += '<div class="settings-menu-label">'+s.label+'</div>';
+    html += '<div class="settings-menu-desc">'+s.desc+'</div>';
+    html += '</span>';
+    html += '<span class="settings-menu-chevron">'+icon("chevronRight",18)+'</span>';
     html += '</button>';
   });
-  html += '</div></div>';
-  html += '</div></div>';
+  html += '</div>';
+  return html;
+}
 
-  html += '<div class="settings-block"><div class="section-label font-mono">Workout Session</div><div class="card">';
-  html += '<div class="settings-title" style="margin-bottom:2px;">Session flow</div>';
-  html += '<div class="settings-desc" style="margin-bottom:10px;">How "Start Session" moves between exercises when you have more than one set</div>';
-  html += '<div class="settings-toggle" style="width:100%;">';
-  html += '<button style="flex:1;" class="'+(!state.sessionRotate?"active":"")+'" data-action="set-session-rotate" data-rotate="0">'+icon("listChecks",13)+' Complete each exercise</button>';
-  html += '<button style="flex:1;" class="'+(state.sessionRotate?"active":"")+'" data-action="set-session-rotate" data-rotate="1">'+icon("rotate",13)+' Rotate between exercises</button>';
-  html += '</div>';
-  html += '<div class="settings-desc" style="max-width:none;margin-top:10px;">'+
-    (state.sessionRotate
-      ? "One set at a time, cycling through every exercise before coming back around — good for circuits and supersets."
-      : "All sets of one exercise before moving to the next, in order — good for straightforward strength sessions.")+
-    '</div>';
-  html += '</div></div>';
+function settingsSectionHeader(title) {
+  return (
+    '<div class="settings-section-head"><button class="settings-back-btn" data-action="close-settings-section">'+icon("chevronLeft",14)+' Settings</button></div>'+
+    '<div class="section-label font-mono" style="margin-bottom:8px;">'+title+'</div>'
+  );
+}
 
-  html += '<div class="settings-block"><div class="section-label font-mono">Data</div><div class="card">';
-  html += '<div class="settings-item-row" style="border-top:none;padding-top:0;margin-top:0;">';
-  html += '<div><div class="settings-title">Choose a suggested routine</div><div class="settings-desc">Pick a ready-made week built around your goals.</div></div>';
-  html += '<button class="action-btn" data-action="open-suggested-modal">'+icon("listChecks",12)+' Browse</button>';
-  html += '</div>';
-  html += settingsAction("clear-progress", "Clear checked-off progress", "Wipes every completed checkmark on every date. Your routine stays intact.");
-  html += settingsAction("reset-routine", "Load sample routine", "Replaces your current week with the built-in Mon–Sun strength / cardio split.");
-  html += settingsAction("reset-routine-blank", "Clear routine to blank", "Removes every scheduled exercise so all seven days start empty, ready to rebuild.");
-  html += settingsAction("reset-library", "Reset exercise library", "Removes custom exercises and un-hides any default ones — restores the built-in list exactly.");
-  html += '</div></div>';
+function renderSettingsSection(id) {
+  const p = state.profile;
+  let html = "";
 
-  html += '<div class="settings-block"><div class="section-label font-mono">Backup</div><div class="card">';
-  html += '<div class="settings-item-row" style="border-top:none;padding-top:0;margin-top:0;">';
-  html += '<div><div class="settings-title">Export backup</div><div class="settings-desc">Downloads a .json file with your routine, library, progress, and profile.</div></div>';
-  html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="export-backup">'+icon("download",12)+' Export</button>';
-  html += '</div>';
-  html += '<div class="settings-item-row">';
-  html += '<div><div class="settings-title">Import backup</div><div class="settings-desc">Restores from a previously exported .json file. Replaces all current data.</div></div>';
-  html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="trigger-import">'+icon("upload",12)+' Import</button>';
-  html += '</div>';
-  html += '<input type="file" id="import-file-input" accept="application/json,.json" style="display:none;" />';
-  if (state.importError) {
-    html += '<div class="foot-note" style="padding-top:10px;"><span style="color:var(--ember);display:flex;">'+icon("alert",13)+'</span><p style="color:var(--ember-tag);">'+esc(state.importError)+'</p></div>';
-  }
-  if (state.pendingImport) {
-    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
-    html += '<div class="settings-desc" style="max-width:none;margin-bottom:10px;">Import <strong style="color:var(--chalk);">'+esc(state.pendingImport.fileName)+'</strong>? This replaces all current data on this device.</div>';
-    html += '<div class="form-row-2">';
-    html += '<button class="btn-outline" data-action="cancel-import">Cancel</button>';
-    html += '<button class="btn-primary" data-action="confirm-import">Import &amp; Replace</button>';
+  if (id === "profile") {
+    html += settingsSectionHeader("Profile & Goals");
+    html += '<div class="card">';
+    html += '<div class="form-row-2" style="margin-bottom:10px;">';
+    html += '<select class="select-input" id="prof-gender"><option value="">Gender</option>'+GENDERS.map(g=>'<option value="'+g.id+'" '+(p.gender===g.id?"selected":"")+'>'+g.label+'</option>').join('')+'</select>';
+    html += '<input class="text-input" id="prof-age" type="number" min="0" placeholder="Age" value="'+esc(p.age)+'" />';
+    html += '</div>';
+    html += '<div class="form-row-2" style="margin-bottom:10px;">';
+    html += '<input class="text-input" id="prof-height-ft" type="number" min="0" placeholder="Height (ft)" value="'+esc(p.heightFt)+'" />';
+    html += '<input class="text-input" id="prof-height-in" type="number" min="0" max="11" placeholder="Height (in)" value="'+esc(p.heightIn)+'" />';
+    html += '</div>';
+    html += '<div class="form-row-2" style="margin-bottom:10px;">';
+    html += '<input class="text-input" id="prof-weight" type="number" min="0" placeholder="Weight (lbs)" value="'+esc(p.weightLbs)+'" />';
+    html += '</div>';
+    html += renderGoalPicker(p.goals);
+    html += renderEquipmentOwnedPicker();
+    html += '<div class="settings-desc" style="max-width:none;margin:10px 0 12px;">Used only to tailor the suggestions in "Check My Workout." Saved on this device.</div>';
+    html += '<button class="dashed-btn" data-action="open-check-modal">'+icon("activity",14)+' Check My Workout</button>';
+    html += '</div>';
+
+  } else if (id === "appearance") {
+    html += settingsSectionHeader("Appearance");
+    html += '<div class="card"><div class="settings-item-row">';
+    html += '<div><div class="settings-title">Theme</div><div class="settings-desc">Switch between light and dark rig</div></div>';
+    html += '<div class="settings-toggle">';
+    html += '<button class="'+(state.theme==="dark"?"active":"")+'" data-action="set-theme" data-theme="dark">'+icon("moon",13)+' Dark</button>';
+    html += '<button class="'+(state.theme==="light"?"active":"")+'" data-action="set-theme" data-theme="light">'+icon("sun",13)+' Light</button>';
     html += '</div></div>';
+    html += '<div style="padding-top:14px;margin-top:14px;border-top:1px solid var(--line);">';
+    html += '<div class="settings-title" style="margin-bottom:2px;">Color</div>';
+    html += '<div class="settings-desc">Pick an accent color for the whole app</div>';
+    html += '<div class="swatch-row">';
+    PALETTES.forEach(pal => {
+      const active = state.palette === pal.id;
+      html += '<button type="button" class="swatch-btn '+(active?"active":"")+'" data-action="set-palette" data-palette="'+pal.id+'">';
+      html += '<span class="swatch-dot" style="background:'+PALETTE_SWATCH[pal.id]+';"></span>';
+      html += '<span class="swatch-label">'+pal.label+'</span>';
+      html += '</button>';
+    });
+    html += '</div></div>';
+    html += '</div>';
+
+  } else if (id === "session") {
+    html += settingsSectionHeader("Workout Session");
+    html += '<div class="card">';
+    html += '<div class="settings-title" style="margin-bottom:2px;">Session flow</div>';
+    html += '<div class="settings-desc" style="margin-bottom:10px;">How "Start Session" moves between exercises when you have more than one set</div>';
+    html += '<div class="settings-toggle" style="width:100%;">';
+    html += '<button style="flex:1;" class="'+(!state.sessionRotate?"active":"")+'" data-action="set-session-rotate" data-rotate="0">'+icon("listChecks",13)+' Complete each exercise</button>';
+    html += '<button style="flex:1;" class="'+(state.sessionRotate?"active":"")+'" data-action="set-session-rotate" data-rotate="1">'+icon("rotate",13)+' Rotate between exercises</button>';
+    html += '</div>';
+    html += '<div class="settings-desc" style="max-width:none;margin-top:10px;">'+
+      (state.sessionRotate
+        ? "One set at a time, cycling through every exercise before coming back around — good for circuits and supersets."
+        : "All sets of one exercise before moving to the next, in order — good for straightforward strength sessions.")+
+      '</div>';
+    html += '</div>';
+
+  } else if (id === "data") {
+    html += settingsSectionHeader("Routine & Library");
+    html += '<div class="card">';
+    html += '<div class="settings-item-row" style="border-top:none;padding-top:0;margin-top:0;">';
+    html += '<div><div class="settings-title">Choose a suggested routine</div><div class="settings-desc">Pick a ready-made week built around your goals.</div></div>';
+    html += '<button class="action-btn" data-action="open-suggested-modal">'+icon("listChecks",12)+' Browse</button>';
+    html += '</div>';
+    html += settingsAction("clear-progress", "Clear checked-off progress", "Wipes every completed checkmark on every date. Your routine stays intact.");
+    html += settingsAction("reset-routine", "Load sample routine", "Replaces your current week with the built-in Mon–Sun strength / cardio split.");
+    html += settingsAction("reset-routine-blank", "Clear routine to blank", "Removes every scheduled exercise so all seven days start empty, ready to rebuild.");
+    html += settingsAction("reset-library", "Reset exercise library", "Removes custom exercises and un-hides any default ones — restores the built-in list exactly.");
+    html += '</div>';
+
+  } else if (id === "backup") {
+    html += settingsSectionHeader("Backup");
+    html += '<div class="card">';
+    html += '<div class="settings-item-row" style="border-top:none;padding-top:0;margin-top:0;">';
+    html += '<div><div class="settings-title">Export backup</div><div class="settings-desc">Shares a .json file with your routine, library, progress, and profile — save it straight to OneDrive, Drive, Files, or any app you choose.</div></div>';
+    html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="export-backup">'+icon("download",12)+' Export</button>';
+    html += '</div>';
+    html += '<div class="settings-item-row">';
+    html += '<div><div class="settings-title">Import backup</div><div class="settings-desc">Restores from a previously exported .json file. Replaces all current data.</div></div>';
+    html += '<button class="action-btn" style="border-color:var(--line);color:var(--chalk-dim);" data-action="trigger-import">'+icon("upload",12)+' Import</button>';
+    html += '</div>';
+    html += '<input type="file" id="import-file-input" accept="application/json,.json" style="display:none;" />';
+    if (state.importError) {
+      html += '<div class="foot-note" style="padding-top:10px;"><span style="color:var(--ember);display:flex;">'+icon("alert",13)+'</span><p style="color:var(--ember-tag);">'+esc(state.importError)+'</p></div>';
+    }
+    if (state.pendingImport) {
+      html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
+      html += '<div class="settings-desc" style="max-width:none;margin-bottom:10px;">Import <strong style="color:var(--chalk);">'+esc(state.pendingImport.fileName)+'</strong>? This replaces all current data on this device.</div>';
+      html += '<div class="form-row-2">';
+      html += '<button class="btn-outline" data-action="cancel-import">Cancel</button>';
+      html += '<button class="btn-primary" data-action="confirm-import">Import &amp; Replace</button>';
+      html += '</div></div>';
+    }
+    html += '</div>';
+
+  } else if (id === "danger") {
+    html += settingsSectionHeader("Danger Zone");
+    html += '<div class="card" style="border-color:var(--ember);">';
+    html += settingsAction("reset-app", "Reset entire app", "Erases everything on this device — routine, library, equipment list, progress, profile, and appearance — and takes you back through setup from scratch. This can't be undone.");
+    html += '</div>';
+
+  } else if (id === "about") {
+    html += settingsSectionHeader("About");
+    html += '<div class="card">';
+    html += '<div class="about-row"><div class="brand-icon" style="width:28px;height:28px;">'+icon("dumbbell",14)+'</div>';
+    html += '<div><div class="font-display" style="text-transform:uppercase;letter-spacing:0.04em;font-size:14px;">RST <span class="font-mono" style="color:var(--chalk-dim);font-size:10px;letter-spacing:0.08em;">• READY SET TRAIN</span></div>';
+    html += '<div class="settings-desc" style="max-width:none;">Your routine, calendar, and progress are saved automatically in this browser (localStorage).</div></div></div>';
+    html += '</div>';
   }
-  html += '</div></div>';
 
-  html += '<div class="settings-block"><div class="section-label font-mono" style="color:var(--ember);">Danger zone</div><div class="card" style="border-color:var(--ember);">';
-  html += settingsAction("reset-app", "Reset entire app", "Erases everything on this device — routine, library, equipment list, progress, profile, and appearance — and takes you back through setup from scratch. This can't be undone.");
-  html += '</div></div>';
-
-  html += '<div class="settings-block"><div class="section-label font-mono">About</div><div class="card">';
-  html += '<div class="about-row"><div class="brand-icon" style="width:28px;height:28px;">'+icon("dumbbell",14)+'</div>';
-  html += '<div><div class="font-display" style="text-transform:uppercase;letter-spacing:0.04em;font-size:14px;">RST <span class="font-mono" style="color:var(--chalk-dim);font-size:10px;letter-spacing:0.08em;">• READY SET TRAIN</span></div>';
-  html += '<div class="settings-desc" style="max-width:none;">Your routine, calendar, and progress are saved automatically in this browser (localStorage).</div></div></div>';
-  html += '</div></div>';
   return html;
 }
 function settingsAction(id, title, desc) {
@@ -2030,6 +2214,7 @@ function render() {
     (state.showCheckModal ? renderCheckModal() : "") +
     (state.showSuggestedModal ? renderSuggestedModal() : "") +
     (state.showAddExercise ? renderAddExerciseModal() : "") +
+    (state.showEditExercise ? renderEditExerciseModal() : "") +
     (state.sessionActive ? renderSessionModal() : "") +
     (state.showBadgeModal ? renderBadgeModal() : "");
   attachLiveInputs();
@@ -2042,6 +2227,14 @@ function attachLiveInputs() {
     libSearch.addEventListener("input", (e) => {
       state.librarySearch = e.target.value;
       document.getElementById("lib-list").innerHTML = renderLibraryList();
+    });
+  }
+  // Settings search (partial re-render of the category list, keeps focus)
+  const settingsSearch = document.getElementById("settings-search");
+  if (settingsSearch) {
+    settingsSearch.addEventListener("input", (e) => {
+      state.settingsSearch = e.target.value;
+      document.getElementById("settings-menu-list").innerHTML = renderSettingsMenuList();
     });
   }
   // Picker search
@@ -2237,6 +2430,8 @@ document.addEventListener("click", (e) => {
     state.showCheckModal = false;
     if (nextTab !== state.tab) {
       state.tab = nextTab;
+      state.settingsSection = null;
+      state.settingsSearch = "";
       pushHistory();
     } else if (hadModal) {
       pushHistory();
@@ -2244,7 +2439,13 @@ document.addEventListener("click", (e) => {
     saveData(); render(); return;
   }
   if (action === "toggle-done") {
-    const dKey = state.tab === "calendar" ? dateKey(state.selectedDate) : todayKey();
+    // Anti-cheat: only today's date can ever be checked off, and only if
+    // the device clock passes the tamper check. Recomputed fresh here (not
+    // read from cached state) so this can't be tricked by a stale value.
+    if (state.clockWarning) return;
+    const targetDate = state.tab === "calendar" ? state.selectedDate : new Date();
+    if (!isEditableDate(targetDate)) return;
+    const dKey = todayKey();
     const cur = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
     const blockId = t.dataset.blockId;
     const next = cur.includes(blockId) ? cur.filter(b => b !== blockId) : [...cur, blockId];
@@ -2543,23 +2744,20 @@ document.addEventListener("click", (e) => {
   }
   if (action === "toggle-edit-timed") {
     state.editForm.timed = !state.editForm.timed;
-    document.getElementById("lib-list").innerHTML = renderLibraryList();
-    bindEditExerciseForm();
-    return;
+    render(); return;
   }
   if (action === "start-edit-exercise") {
     const ex = exById(t.dataset.exId);
     if (!ex) return;
     state.editingExId = ex.id;
     state.editForm = { name: ex.name, equipment: ex.equipment, category: ex.category, muscle: ex.muscle, instructions: ex.instructions || "", intensity: ex.intensity || "moderate", timed: !!ex.timed };
-    document.getElementById("lib-list").innerHTML = renderLibraryList();
-    bindEditExerciseForm();
-    return;
+    state.showEditExercise = true;
+    pushHistory();
+    render(); return;
   }
   if (action === "cancel-edit-exercise") {
-    state.editingExId = null;
-    state.editForm = null;
-    document.getElementById("lib-list").innerHTML = renderLibraryList();
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    closeModalViaBack();
     return;
   }
   if (action === "save-edit-exercise") {
@@ -2577,7 +2775,7 @@ document.addEventListener("click", (e) => {
     state.editingExId = null;
     state.editForm = null;
     saveData();
-    document.getElementById("lib-list").innerHTML = renderLibraryList();
+    closeModalViaBack();
     return;
   }
   if (action === "set-theme") {
@@ -2590,7 +2788,7 @@ document.addEventListener("click", (e) => {
       if (doAction === "clear-progress") state.progress = {};
       if (doAction === "reset-routine") state.routine = seedRoutine();
       if (doAction === "reset-routine-blank") state.routine = blankRoutine();
-      if (doAction === "reset-library") { state.library = SEED_LIBRARY.slice(); state.editingExId = null; state.editForm = null; state.confirmDeleteExId = null; }
+      if (doAction === "reset-library") { state.library = SEED_LIBRARY.slice(); state.editingExId = null; state.editForm = null; state.showEditExercise = false; state.confirmDeleteExId = null; }
       if (doAction === "reset-app") {
         state.routine = blankRoutine();
         state.library = SEED_LIBRARY.slice();
@@ -2607,6 +2805,7 @@ document.addEventListener("click", (e) => {
         state.confirmDeleteExId = null;
         state.editingExId = null;
         state.editForm = null;
+        state.showEditExercise = false;
         state.onboardingDone = false;
         state.showCheckModal = false;
         state.pickerOpen = false;
@@ -2665,6 +2864,7 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (action === "open-session") {
+    if (state.clockWarning) return; // anti-cheat: clock tamper detected
     const blocks = todaysSessionBlocks();
     const dKey = todayKey();
     const doneIds = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
@@ -2693,6 +2893,7 @@ document.addEventListener("click", (e) => {
     render(); return;
   }
   if (action === "session-mark-done") {
+    if (state.clockWarning) return; // anti-cheat: clock tamper detected
     stopSessionTimer();
     const blocks = todaysSessionBlocks();
     const block = blocks[state.sessionIndex];
@@ -2704,6 +2905,7 @@ document.addEventListener("click", (e) => {
     render(); return;
   }
   if (action === "session-log-set") {
+    if (state.clockWarning) return; // anti-cheat: clock tamper detected
     const blocks = todaysSessionBlocks();
     const block = blocks[state.sessionIndex];
     if (!block) return;
@@ -2735,8 +2937,23 @@ document.addEventListener("click", (e) => {
   if (action === "goto-profile") {
     state.showCheckModal = false;
     state.tab = "settings";
+    state.settingsSection = "profile";
     pushHistory();
     render(); return;
+  }
+  if (action === "open-settings-section") {
+    state.settingsSection = t.dataset.section;
+    pushHistory();
+    render(); return;
+  }
+  if (action === "close-settings-section") {
+    if (history.state && history.state.settingsSection) {
+      history.back();
+    } else {
+      state.settingsSection = null;
+      render();
+    }
+    return;
   }
 });
 
@@ -2758,7 +2975,13 @@ document.addEventListener("click", (e) => {
     if (typeof saved.sessionRotate === "boolean") state.sessionRotate = saved.sessionRotate;
   }
   if (state.onboardingDone) replaceHistory();
+  checkClockIntegrity();
   render();
+  setInterval(() => {
+    const was = state.clockWarning;
+    checkClockIntegrity();
+    if (was !== state.clockWarning) render();
+  }, 60000);
 })();
 </script>
 </body>

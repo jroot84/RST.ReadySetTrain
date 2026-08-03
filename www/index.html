@@ -579,6 +579,47 @@ function routineIsEmpty() {
   return Object.values(state.routine).every(d => d.blocks.length === 0);
 }
 
+// When applying a suggested or sample routine, swap out any exercise that needs equipment
+// the person hasn't marked as owned in their profile for an equivalent exercise they can
+// actually do — e.g. Cycling (needs a Bike) becomes Running or a Brisk Walk if no bike is
+// available. Substitutes are scored, not just filtered, so the swap stays true to both the
+// equipment constraint AND the goal the template was built for:
+//   - same category (cardio/strength) so block shape (duration vs sets/reps) stays valid
+//   - same muscle group where possible, so muscle coverage for the week doesn't shift
+//   - same intensity level where possible, so a build-muscle/strength template doesn't
+//     quietly get watered down to something easier just because it's more available
+//   - same "uses equipment vs. bodyweight" character, so a weighted move isn't swapped
+//     for a bodyweight one purely because bodyweight happens to be available
+// Falls back to the original exercise if the library has no suitable substitute.
+function adaptRoutineToOwnedEquipment(routine) {
+  const owned = ownedEquipmentOrDefault();
+  const isOwned = (eq) => owned.some(o => o.toLowerCase() === (eq||"").toLowerCase());
+  const usesEquipment = (eq) => eq !== "None" && eq !== "Bodyweight";
+
+  const swapId = (exerciseId) => {
+    const ex = exById(exerciseId);
+    if (!ex || isOwned(ex.equipment)) return exerciseId;
+
+    const candidates = state.library.filter(e => !e.hidden && e.id !== ex.id && e.category === ex.category && isOwned(e.equipment));
+    if (candidates.length === 0) return exerciseId; // nothing better on hand — leave as-is
+
+    let best = null, bestScore = -1;
+    candidates.forEach(c => {
+      let s = 0;
+      if (c.muscle === ex.muscle) s += 4;
+      if (c.intensity === ex.intensity) s += 2;
+      if (usesEquipment(c.equipment) === usesEquipment(ex.equipment)) s += 1;
+      if (s > bestScore) { best = c; bestScore = s; }
+    });
+    return best.id;
+  };
+
+  Object.keys(routine).forEach(day => {
+    routine[day].blocks.forEach(b => { b.exerciseId = swapId(b.exerciseId); });
+  });
+  return routine;
+}
+
 /* ------------------------------------------------------------------ */
 /* Suggested routine templates — one per goal, using only the built-in */
 /* exercise library so they always resolve regardless of a person's    */
@@ -673,6 +714,47 @@ function templateStats(routine) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Saved (custom) routines — the person's own home-built weeks, kept    */
+/* separate from state.routine (the one currently active on Today/     */
+/* Calendar) so they can switch between several without rebuilding.     */
+/* ------------------------------------------------------------------ */
+function saveCurrentRoutineAsNew(name) {
+  const now = new Date().toISOString();
+  const finalName = (name || "").trim() || ("Routine — " + now.slice(0, 10));
+  state.savedRoutines.push({
+    id: uid("routine"), name: finalName, createdAt: now, updatedAt: now,
+    routine: JSON.parse(JSON.stringify(state.routine)),
+  });
+  saveData();
+}
+function overwriteSavedRoutine(id) {
+  const sr = state.savedRoutines.find(r => r.id === id);
+  if (!sr) return;
+  sr.routine = JSON.parse(JSON.stringify(state.routine));
+  sr.updatedAt = new Date().toISOString();
+  saveData();
+}
+function renameSavedRoutine(id, name) {
+  const sr = state.savedRoutines.find(r => r.id === id);
+  if (!sr) return;
+  const trimmed = (name || "").trim();
+  if (trimmed) { sr.name = trimmed; sr.updatedAt = new Date().toISOString(); saveData(); }
+}
+function deleteSavedRoutine(id) {
+  state.savedRoutines = state.savedRoutines.filter(r => r.id !== id);
+  saveData();
+}
+function useSavedRoutine(id) {
+  const sr = state.savedRoutines.find(r => r.id === id);
+  if (!sr) return;
+  // Loaded exactly as saved — no equipment substitution, unlike the built-in
+  // suggested/sample routines. This is a routine the person deliberately
+  // built themselves, so it should come back exactly as they left it.
+  state.routine = JSON.parse(JSON.stringify(sr.routine));
+  saveData();
+}
+
+/* ------------------------------------------------------------------ */
 /* Utilities                                                            */
 /* ------------------------------------------------------------------ */
 function dateKey(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
@@ -737,7 +819,7 @@ function saveData() {
       routine: state.routine, library: state.library, equipment: state.equipment,
       progress: state.progress, theme: state.theme, palette: state.palette,
       profile: state.profile, onboardingDone: state.onboardingDone, bestStreak: state.bestStreak,
-      sessionRotate: state.sessionRotate,
+      sessionRotate: state.sessionRotate, savedRoutines: state.savedRoutines,
     }));
   } catch (e) { console.error("Failed to save", e); }
 }
@@ -802,42 +884,16 @@ function writeRSFDataRaw(data) {
 /* ------------------------------------------------------------------ */
 /* Backup export / import                                               */
 /* ------------------------------------------------------------------ */
-async function exportBackup() {
-  const nowIso = new Date().toISOString();
-  const rstPayload = {
-    app: "RST", version: 1, exportedAt: nowIso,
-    routine: state.routine, library: state.library, equipment: state.equipment, progress: state.progress,
-    theme: state.theme, palette: state.palette, profile: state.profile, onboardingDone: state.onboardingDone,
-    bestStreak: state.bestStreak, sessionRotate: state.sessionRotate,
-  };
-  // Best-effort: if RSF has ever been opened on this device, fold its data
-  // into the same backup file so one export restores both apps.
-  const rsfRaw = readRSFDataRaw();
-  const rsfPayload = rsfRaw ? Object.assign({ app: "RSF", version: 1, exportedAt: nowIso }, rsfRaw) : null;
-
-  const payload = { app: "RSF+RST", version: 1, exportedAt: nowIso, rst: rstPayload, rsf: rsfPayload };
-
-  const stamp = nowIso.slice(0, 10);
-  const baseName = "readyset-backup-" + stamp;
+// Shares a JSON payload as a file via the native share sheet when available
+// (the only way a web app can hand a file straight to another app — OneDrive,
+// Google Drive, Files, Messages, etc.), falling back to a plain download.
+// Only text/plain + a .txt extension is attempted (not application/json):
+// navigator.share() spends the click's one-shot "user activation" the moment
+// it's called, whether it succeeds or throws, so a second MIME type after a
+// failed first attempt never gets a fair shot — text/plain + .txt is the
+// pairing browsers' share safelists accept.
+async function shareOrDownloadJSON(payload, baseName, shareTitle, shareText) {
   const json = JSON.stringify(payload, null, 2);
-  const shareTitle = rsfPayload ? "RST + RSF Backup" : "RST Backup";
-  const shareText = rsfPayload
-    ? "Ready Set Train + Ready Set Fuel backup — " + stamp
-    : "RST backup — " + stamp;
-
-  // Prefer the native share sheet — it's the only way a web app can hand a
-  // file straight to another app (OneDrive, Google Drive, Files, etc.)
-  // instead of just dropping it in the browser's Downloads folder. This
-  // requires a secure context (https, or localhost) — navigator.share
-  // won't exist at all otherwise, and we'll silently fall through to a
-  // plain download below.
-  //
-  // Only text/plain + a .txt extension is attempted (not application/json):
-  // navigator.share() spends the click's one-shot "user activation" the
-  // moment it's called, whether it succeeds or throws, so trying a second
-  // MIME type after a failed first attempt never actually gets a fair shot.
-  // text/plain + .txt is the pairing browsers' share safelists accept, so
-  // it's the one worth using.
   if (typeof navigator.share === "function") {
     const file = new File([json], baseName + ".txt", { type: "text/plain" });
     const canShareOk = navigator.canShare ? navigator.canShare({ files: [file] }) : true;
@@ -851,7 +907,6 @@ async function exportBackup() {
       }
     }
   }
-
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -861,6 +916,48 @@ async function exportBackup() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportBackup() {
+  const nowIso = new Date().toISOString();
+  const rstPayload = {
+    app: "RST", version: 1, exportedAt: nowIso,
+    routine: state.routine, library: state.library, equipment: state.equipment, progress: state.progress,
+    theme: state.theme, palette: state.palette, profile: state.profile, onboardingDone: state.onboardingDone,
+    bestStreak: state.bestStreak, sessionRotate: state.sessionRotate, savedRoutines: state.savedRoutines,
+  };
+  // Best-effort: if RSF has ever been opened on this device, fold its data
+  // into the same backup file so one export restores both apps.
+  const rsfRaw = readRSFDataRaw();
+  const rsfPayload = rsfRaw ? Object.assign({ app: "RSF", version: 1, exportedAt: nowIso }, rsfRaw) : null;
+
+  const payload = { app: "RSF+RST", version: 1, exportedAt: nowIso, rst: rstPayload, rsf: rsfPayload };
+
+  const stamp = nowIso.slice(0, 10);
+  const baseName = "readyset-backup-" + stamp;
+  const shareTitle = rsfPayload ? "RST + RSF Backup" : "RST Backup";
+  const shareText = rsfPayload
+    ? "Ready Set Train + Ready Set Fuel backup — " + stamp
+    : "RST backup — " + stamp;
+  await shareOrDownloadJSON(payload, baseName, shareTitle, shareText);
+}
+
+// Exports a single saved routine as its own small shareable file — separate
+// from a full backup, so one person can hand a specific routine to another
+// person without exposing their whole library, progress, or profile. The
+// recipient imports it into their own "My Routines" list via the same file
+// (see handleImportRoutineFile) — nothing about their existing data changes.
+async function exportSavedRoutine(id) {
+  const sr = state.savedRoutines.find(r => r.id === id);
+  if (!sr) return;
+  const nowIso = new Date().toISOString();
+  const payload = { app: "RST", kind: "routine", version: 1, exportedAt: nowIso, name: sr.name, routine: sr.routine };
+  const stamp = nowIso.slice(0, 10);
+  const safeName = sr.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "routine";
+  const baseName = "rst-routine-" + safeName + "-" + stamp;
+  const shareTitle = "RST Routine — " + sr.name;
+  const shareText = "A Ready Set Train routine: " + sr.name;
+  await shareOrDownloadJSON(payload, baseName, shareTitle, shareText);
 }
 
 function looksLikeRSTBackup(data) {
@@ -908,6 +1005,39 @@ function handleImportFile(file) {
   };
   reader.onerror = () => {
     state.importError = "Couldn't read that file.";
+    render();
+  };
+  reader.readAsText(file);
+}
+
+// A single shared routine (see exportSavedRoutine) — distinct from a full app
+// backup. Importing one just adds it to "My Routines"; nothing else on the
+// device changes, so it doesn't need the destructive-replace confirmation
+// step a full backup import does.
+function looksLikeRoutineFile(data) {
+  return !!(data && typeof data === "object" && data.routine && typeof data.routine === "object");
+}
+function handleImportRoutineFile(file) {
+  state.routineImportError = "";
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      if (!looksLikeRoutineFile(parsed)) {
+        state.routineImportError = "That file doesn't look like an RST routine.";
+      } else {
+        const name = (parsed.name && String(parsed.name).trim()) || file.name.replace(/\.(json|txt)$/i, "");
+        const now = new Date().toISOString();
+        state.savedRoutines.push({ id: uid("routine"), name, createdAt: now, updatedAt: now, routine: parsed.routine });
+        saveData();
+      }
+    } catch (e) {
+      state.routineImportError = "Couldn't read that file — make sure it's an RST routine export (.json or .txt).";
+    }
+    render();
+  };
+  reader.onerror = () => {
+    state.routineImportError = "Couldn't read that file.";
     render();
   };
   reader.readAsText(file);
@@ -965,6 +1095,7 @@ function applyPendingImport() {
     if (typeof data.onboardingDone === "boolean") state.onboardingDone = data.onboardingDone;
     if (typeof data.bestStreak === "number") state.bestStreak = data.bestStreak;
     if (typeof data.sessionRotate === "boolean") state.sessionRotate = data.sessionRotate;
+    if (Array.isArray(data.savedRoutines)) state.savedRoutines = data.savedRoutines;
     saveData();
   }
   if (pending.rsf) {
@@ -1022,6 +1153,16 @@ const state = {
   library: SEED_LIBRARY.slice(),
   equipment: DEFAULT_EQUIPMENT.slice(),
   progress: {},              // dateKey -> { doneBlockIds: [] }
+  savedRoutines: [],          // [{ id, name, createdAt, updatedAt, routine }]
+  showSaveRoutineModal: false,
+  saveRoutineNameInput: "",
+  showMyRoutinesModal: false,
+  confirmUseSavedRoutineId: null,
+  confirmUpdateSavedRoutineId: null,
+  confirmDeleteSavedRoutineId: null,
+  renamingSavedRoutineId: null,
+  renameRoutineNameInput: "",
+  routineImportError: "",
   theme: "dark",
   palette: "ember",
   tab: "today",
@@ -1083,7 +1224,7 @@ function applyTheme() {
 let applyingPopState = false;
 
 function historySnapshot() {
-  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal, showManageEquipment: state.showManageEquipment, showSuggestedModal: state.showSuggestedModal, showAddExercise: state.showAddExercise, showEditExercise: state.showEditExercise, sessionActive: state.sessionActive, showBadgeModal: state.showBadgeModal, settingsSection: state.settingsSection };
+  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal, showManageEquipment: state.showManageEquipment, showSuggestedModal: state.showSuggestedModal, showSaveRoutineModal: state.showSaveRoutineModal, showMyRoutinesModal: state.showMyRoutinesModal, renamingSavedRoutineId: state.renamingSavedRoutineId, showAddExercise: state.showAddExercise, showEditExercise: state.showEditExercise, sessionActive: state.sessionActive, showBadgeModal: state.showBadgeModal, settingsSection: state.settingsSection };
 }
 function pushHistory() {
   if (applyingPopState) return;
@@ -1104,13 +1245,16 @@ function replaceHistory() {
 function closeModalViaBack() {
   // If the current history entry represents the open modal, let the
   // browser's own back navigation close it (keeps stack consistent).
-  if (history.state && (history.state.pickerOpen || history.state.showCheckModal || history.state.showManageEquipment || history.state.showSuggestedModal || history.state.showAddExercise || history.state.showEditExercise || history.state.sessionActive || history.state.showBadgeModal || history.state.settingsSection)) {
+  if (history.state && (history.state.pickerOpen || history.state.showCheckModal || history.state.showManageEquipment || history.state.showSuggestedModal || history.state.showSaveRoutineModal || history.state.showMyRoutinesModal || history.state.renamingSavedRoutineId || history.state.showAddExercise || history.state.showEditExercise || history.state.sessionActive || history.state.showBadgeModal || history.state.settingsSection)) {
     history.back();
   } else {
     state.pickerOpen = false;
     state.showCheckModal = false;
     state.showManageEquipment = false;
     state.showSuggestedModal = false;
+    state.showSaveRoutineModal = false;
+    state.showMyRoutinesModal = false;
+    state.renamingSavedRoutineId = null;
     state.showAddExercise = false;
     state.showEditExercise = false;
     state.sessionActive = false;
@@ -1122,12 +1266,15 @@ function closeModalViaBack() {
 window.addEventListener("popstate", (e) => {
   if (!state.onboardingDone) return; // nothing to navigate before setup is done
   applyingPopState = true;
-  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false, showManageEquipment: false, showSuggestedModal: false, showAddExercise: false, showEditExercise: false, sessionActive: false, showBadgeModal: false, settingsSection: null };
+  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false, showManageEquipment: false, showSuggestedModal: false, showSaveRoutineModal: false, showMyRoutinesModal: false, renamingSavedRoutineId: null, showAddExercise: false, showEditExercise: false, sessionActive: false, showBadgeModal: false, settingsSection: null };
   state.tab = snap.tab;
   state.pickerOpen = !!snap.pickerOpen;
   state.showCheckModal = !!snap.showCheckModal;
   state.showManageEquipment = !!snap.showManageEquipment;
   state.showSuggestedModal = !!snap.showSuggestedModal;
+  state.showSaveRoutineModal = !!snap.showSaveRoutineModal;
+  state.showMyRoutinesModal = !!snap.showMyRoutinesModal;
+  state.renamingSavedRoutineId = snap.renamingSavedRoutineId || null;
   state.showAddExercise = !!snap.showAddExercise;
   state.showEditExercise = !!snap.showEditExercise;
   state.sessionActive = !!snap.sessionActive;
@@ -1577,6 +1724,10 @@ function renderBuilder() {
       '<button class="btn-outline" style="width:100%;border-color:var(--ember);color:var(--ember);" data-action="open-suggested-modal">'+icon("listChecks",13)+' Or choose a suggested routine</button>'+
       '</div>';
   }
+  html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
+  html += '<button class="btn-outline" style="flex:1;" data-action="open-save-routine">'+icon("check",13)+' Save routine</button>';
+  html += '<button class="btn-outline" style="flex:1;" data-action="open-my-routines">'+icon("library",13)+' My Routines'+(state.savedRoutines.length?' ('+state.savedRoutines.length+')':'')+'</button>';
+  html += '</div>';
   html += '<div class="section-label font-mono">Build your week</div>';
   html += '<div class="day-tabs" style="margin-bottom:20px;">';
   DAY_SHORT.forEach((d,i) => {
@@ -1779,6 +1930,89 @@ function renderSuggestedModal() {
   });
 
   html += '</div></div></div>';
+  return html;
+}
+
+function shortDate(iso) {
+  try { return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+  catch (e) { return ""; }
+}
+
+function renderSaveRoutineModal() {
+  let html = '<div class="modal-overlay" data-action="close-save-routine">';
+  html += '<div class="modal">';
+  html += '<div class="modal-head"><span class="font-display">Save this routine</span><button data-action="close-save-routine">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+  html += '<div class="settings-desc" style="max-width:none;margin-bottom:12px;">Saves your current week as a new entry in "My Routines," separate from what\'s scheduled now — you can switch back to it anytime.</div>';
+  html += '<input class="text-input" style="margin-bottom:14px;" id="save-routine-name-input" placeholder="Name this routine (e.g. Home Push/Pull)" value="'+esc(state.saveRoutineNameInput)+'" />';
+  html += '<button class="btn-primary" style="width:100%;" data-action="confirm-save-routine">'+icon("check",14)+' Save routine</button>';
+  html += '</div></div></div>';
+  return html;
+}
+
+function renderMyRoutinesModal() {
+  let html = '<div class="modal-overlay" data-action="close-my-routines">';
+  html += '<div class="modal" style="max-height:85vh;">';
+  html += '<div class="modal-head"><span class="font-display">My Routines</span><button data-action="close-my-routines">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+
+  if (state.routineImportError) {
+    html += '<div class="foot-note" style="padding-bottom:10px;"><span style="color:var(--ember);display:flex;">'+icon("alert",13)+'</span><p style="color:var(--ember-tag);">'+esc(state.routineImportError)+'</p></div>';
+  }
+  html += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
+  html += '<button class="btn-outline" style="flex:1;" data-action="open-save-routine">'+icon("check",13)+' Save current</button>';
+  html += '<button class="btn-outline" style="flex:1;" data-action="trigger-import-routine">'+icon("upload",13)+' Import</button>';
+  html += '</div>';
+  html += '<input type="file" id="import-routine-file-input" accept="application/json,.json,text/plain,.txt" style="display:none;" />';
+
+  if (state.savedRoutines.length === 0) {
+    html += '<div class="empty-note" style="text-align:center;padding:24px 0;">No saved routines yet. Build a week, then tap "Save current" — or import one someone shared with you.</div>';
+  } else {
+    const sorted = state.savedRoutines.slice().sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    sorted.forEach(sr => {
+      const stats = templateStats(sr.routine);
+      const usingConfirm = state.confirmUseSavedRoutineId === sr.id;
+      const updateConfirm = state.confirmUpdateSavedRoutineId === sr.id;
+      const deleteConfirm = state.confirmDeleteSavedRoutineId === sr.id;
+      html += '<div class="card" style="margin-bottom:12px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">';
+      html += '<div class="settings-title" style="flex:1;min-width:0;overflow-wrap:break-word;">'+esc(sr.name)+'</div>';
+      html += '<div style="display:flex;gap:2px;flex-shrink:0;">';
+      html += '<button data-action="start-rename-routine" data-routine-id="'+sr.id+'" aria-label="Rename">'+icon("edit",14)+'</button>';
+      html += '<button data-action="export-saved-routine" data-routine-id="'+sr.id+'" aria-label="Share">'+icon("upload",14)+'</button>';
+      html += '<button style="'+(deleteConfirm?"color:var(--ember);":"")+'" data-action="delete-saved-routine" data-routine-id="'+sr.id+'" aria-label="Delete">'+icon("trash",14)+'</button>';
+      html += '</div></div>';
+      html += '<div class="lmeta" style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:var(--chalk-dim);margin-bottom:10px;">'+
+        stats.strength+' strength · '+stats.cardio+' cardio · '+stats.rest+' rest · saved '+shortDate(sr.updatedAt)+'</div>';
+      if (deleteConfirm) {
+        html += '<div class="settings-desc" style="max-width:none;margin-bottom:8px;color:var(--ember-tag);">Delete "'+esc(sr.name)+'"? This can\'t be undone.</div>';
+      }
+      html += '<div style="display:flex;gap:8px;">';
+      html += '<button class="btn-outline" style="flex:1;'+(usingConfirm?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="use-saved-routine" data-routine-id="'+sr.id+'">'+
+        (usingConfirm ? "Tap again to replace" : "Use this routine")+'</button>';
+      html += '<button class="btn-outline" style="flex:1;'+(updateConfirm?"border-color:var(--ember);color:var(--ember);":"")+'" data-action="update-saved-routine" data-routine-id="'+sr.id+'">'+
+        (updateConfirm ? "Tap again to overwrite" : "Update from current")+'</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+  }
+
+  html += '</div></div></div>';
+  return html;
+}
+
+function renderRenameRoutineModal() {
+  const sr = state.savedRoutines.find(r => r.id === state.renamingSavedRoutineId);
+  if (!sr) return "";
+  let html = '<div class="modal-overlay" data-action="cancel-rename-routine">';
+  html += '<div class="modal">';
+  html += '<div class="modal-head"><span class="font-display">Rename routine</span><button data-action="cancel-rename-routine">'+icon("x",18)+'</button></div>';
+  html += '<div class="modal-list">';
+  html += '<input class="text-input" style="margin-bottom:14px;" id="rename-routine-name-input" value="'+esc(state.renameRoutineNameInput)+'" />';
+  html += '<div style="display:flex;gap:8px;">';
+  html += '<button class="btn-outline" style="flex:1;" data-action="cancel-rename-routine">Cancel</button>';
+  html += '<button class="btn-primary" style="flex:1;" data-action="confirm-rename-routine">Save</button>';
+  html += '</div></div></div></div>';
   return html;
 }
 
@@ -2081,6 +2315,7 @@ const SETTINGS_ITEMS = [
   { section: "appearance", label: "Color",                        desc: "Pick an accent color for the whole app", keywords: "color palette accent ember ocean violet forest crimson slate" },
   { section: "session",    label: "Session flow",                 desc: "Complete each exercise in order, or rotate between exercises", keywords: "rotate circuit superset sets order" },
   { section: "data",       label: "Choose a suggested routine",   desc: "Pick a ready-made week built around your goals", keywords: "suggested routine template browse" },
+  { section: "data",       label: "My Routines",                  desc: "Save, switch between, rename, and share your own custom routines", keywords: "my routines save custom saved switch export share import" },
   { section: "data",       label: "Clear checked-off progress",   desc: "Wipes every completed checkmark on every date", keywords: "clear progress checkmarks wipe" },
   { section: "data",       label: "Load sample routine",          desc: "Replaces your current week with the built-in Mon–Sun split", keywords: "sample routine load default" },
   { section: "data",       label: "Clear routine to blank",       desc: "Removes every scheduled exercise so all seven days start empty", keywords: "clear routine blank empty" },
@@ -2236,6 +2471,10 @@ function renderSettingsSection(id) {
     html += '<div><div class="settings-title">Choose a suggested routine</div><div class="settings-desc">Pick a ready-made week built around your goals.</div></div>';
     html += '<button class="action-btn" data-action="open-suggested-modal">'+icon("listChecks",12)+' Browse</button>';
     html += '</div>';
+    html += '<div class="settings-item-row">';
+    html += '<div><div class="settings-title">My Routines</div><div class="settings-desc">Save, switch between, rename, and share your own custom routines.</div></div>';
+    html += '<button class="action-btn" data-action="open-my-routines">'+icon("library",12)+' Browse</button>';
+    html += '</div>';
     html += settingsAction("clear-progress", "Clear checked-off progress", "Wipes every completed checkmark on every date. Your routine stays intact.");
     html += settingsAction("reset-routine", "Load sample routine", "Replaces your current week with the built-in Mon–Sun strength / cardio split.");
     html += settingsAction("reset-routine-blank", "Clear routine to blank", "Removes every scheduled exercise so all seven days start empty, ready to rebuild.");
@@ -2272,7 +2511,7 @@ function renderSettingsSection(id) {
   } else if (id === "danger") {
     html += settingsSectionHeader("Danger Zone");
     html += '<div class="card" style="border-color:var(--ember);">';
-    html += settingsAction("reset-app", "Reset entire app", "Erases everything on this device — routine, library, equipment list, progress, profile, and appearance — and takes you back through setup from scratch. This can't be undone.");
+    html += settingsAction("reset-app", "Reset entire app", "Erases everything on this device — routine, saved routines, library, equipment list, progress, profile, and appearance — and takes you back through setup from scratch. This can't be undone.");
     html += '</div>';
 
   } else if (id === "about") {
@@ -2414,6 +2653,9 @@ function render() {
   app.innerHTML = renderHeader() + '<main>' + mainHtml + '</main>' + renderTabBar() +
     (state.showCheckModal ? renderCheckModal() : "") +
     (state.showSuggestedModal ? renderSuggestedModal() : "") +
+    (state.showSaveRoutineModal ? renderSaveRoutineModal() : "") +
+    (state.showMyRoutinesModal ? renderMyRoutinesModal() : "") +
+    (state.renamingSavedRoutineId ? renderRenameRoutineModal() : "") +
     (state.showAddExercise ? renderAddExerciseModal() : "") +
     (state.showEditExercise ? renderEditExerciseModal() : "") +
     (state.sessionActive ? renderSessionModal() : "") +
@@ -2522,6 +2764,26 @@ function attachLiveInputs() {
       if (file) handleImportFile(file);
       e.target.value = ""; // allow re-selecting the same file later
     });
+  }
+
+  // Shared-routine import file picker (My Routines)
+  const importRoutineInput = document.getElementById("import-routine-file-input");
+  if (importRoutineInput) {
+    importRoutineInput.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) handleImportRoutineFile(file);
+      e.target.value = "";
+    });
+  }
+
+  // Save routine / rename routine name fields
+  const saveRoutineNameInput = document.getElementById("save-routine-name-input");
+  if (saveRoutineNameInput) {
+    saveRoutineNameInput.addEventListener("input", (e) => { state.saveRoutineNameInput = e.target.value; });
+  }
+  const renameRoutineNameInput = document.getElementById("rename-routine-name-input");
+  if (renameRoutineNameInput) {
+    renameRoutineNameInput.addEventListener("input", (e) => { state.renameRoutineNameInput = e.target.value; });
   }
 }
 
@@ -2853,7 +3115,7 @@ document.addEventListener("click", (e) => {
     const id = t.dataset.templateId;
     if (state.confirmUseTemplateId === id) {
       const tmpl = ROUTINE_TEMPLATES.find(x => x.id === id);
-      if (tmpl) state.routine = tmpl.build();
+      if (tmpl) state.routine = adaptRoutineToOwnedEquipment(tmpl.build());
       state.confirmUseTemplateId = null;
       state.showSuggestedModal = false;
       state.builderDay = new Date().getDay();
@@ -2865,6 +3127,110 @@ document.addEventListener("click", (e) => {
       state.confirmUseTemplateId = id;
       render();
     }
+    return;
+  }
+  if (action === "open-save-routine") {
+    state.saveRoutineNameInput = "";
+    state.showSaveRoutineModal = true;
+    pushHistory();
+    render(); return;
+  }
+  if (action === "close-save-routine") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "confirm-save-routine") {
+    saveCurrentRoutineAsNew(state.saveRoutineNameInput);
+    state.saveRoutineNameInput = "";
+    state.showSaveRoutineModal = false;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "open-my-routines") {
+    state.showMyRoutinesModal = true;
+    state.confirmUseSavedRoutineId = null;
+    state.confirmUpdateSavedRoutineId = null;
+    state.confirmDeleteSavedRoutineId = null;
+    state.routineImportError = "";
+    pushHistory();
+    render(); return;
+  }
+  if (action === "close-my-routines") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    state.confirmUseSavedRoutineId = null;
+    state.confirmUpdateSavedRoutineId = null;
+    state.confirmDeleteSavedRoutineId = null;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "use-saved-routine") {
+    const id = t.dataset.routineId;
+    if (state.confirmUseSavedRoutineId === id) {
+      useSavedRoutine(id);
+      state.confirmUseSavedRoutineId = null;
+      state.showMyRoutinesModal = false;
+      state.builderDay = new Date().getDay();
+      state.tab = "builder";
+      replaceHistory();
+      render();
+    } else {
+      state.confirmUseSavedRoutineId = id;
+      render();
+    }
+    return;
+  }
+  if (action === "update-saved-routine") {
+    const id = t.dataset.routineId;
+    if (state.confirmUpdateSavedRoutineId === id) {
+      overwriteSavedRoutine(id);
+      state.confirmUpdateSavedRoutineId = null;
+      render();
+    } else {
+      state.confirmUpdateSavedRoutineId = id;
+      render();
+    }
+    return;
+  }
+  if (action === "delete-saved-routine") {
+    const id = t.dataset.routineId;
+    if (state.confirmDeleteSavedRoutineId === id) {
+      deleteSavedRoutine(id);
+      state.confirmDeleteSavedRoutineId = null;
+      render();
+    } else {
+      state.confirmDeleteSavedRoutineId = id;
+      render();
+    }
+    return;
+  }
+  if (action === "start-rename-routine") {
+    const sr = state.savedRoutines.find(r => r.id === t.dataset.routineId);
+    if (!sr) return;
+    state.renamingSavedRoutineId = sr.id;
+    state.renameRoutineNameInput = sr.name;
+    pushHistory();
+    render(); return;
+  }
+  if (action === "cancel-rename-routine") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    state.renamingSavedRoutineId = null;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "confirm-rename-routine") {
+    renameSavedRoutine(state.renamingSavedRoutineId, state.renameRoutineNameInput);
+    state.renamingSavedRoutineId = null;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "export-saved-routine") {
+    exportSavedRoutine(t.dataset.routineId);
+    return;
+  }
+  if (action === "trigger-import-routine") {
+    const input = document.getElementById("import-routine-file-input");
+    if (input) input.click();
     return;
   }
   if (action === "add-equipment") {
@@ -3003,7 +3369,7 @@ document.addEventListener("click", (e) => {
     const doAction = t.dataset.do;
     if (state.confirmingAction === doAction) {
       if (doAction === "clear-progress") state.progress = {};
-      if (doAction === "reset-routine") state.routine = seedRoutine();
+      if (doAction === "reset-routine") state.routine = adaptRoutineToOwnedEquipment(seedRoutine());
       if (doAction === "reset-routine-blank") state.routine = blankRoutine();
       if (doAction === "reset-library") { state.library = SEED_LIBRARY.slice(); state.editingExId = null; state.editForm = null; state.showEditExercise = false; state.confirmDeleteExId = null; }
       if (doAction === "reset-app") {
@@ -3011,6 +3377,7 @@ document.addEventListener("click", (e) => {
         state.library = SEED_LIBRARY.slice();
         state.equipment = DEFAULT_EQUIPMENT.slice();
         state.progress = {};
+        state.savedRoutines = [];
         state.profile = { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[], availableEquipment:null };
         state.theme = "dark";
         state.palette = "ember";
@@ -3018,6 +3385,15 @@ document.addEventListener("click", (e) => {
         state.libraryEquip = "All";
         state.showManageEquipment = false;
         state.showSuggestedModal = false;
+        state.showSaveRoutineModal = false;
+        state.showMyRoutinesModal = false;
+        state.confirmUseSavedRoutineId = null;
+        state.confirmUpdateSavedRoutineId = null;
+        state.confirmDeleteSavedRoutineId = null;
+        state.renamingSavedRoutineId = null;
+        state.saveRoutineNameInput = "";
+        state.renameRoutineNameInput = "";
+        state.routineImportError = "";
         state.confirmUseTemplateId = null;
         state.confirmDeleteExId = null;
         state.editingExId = null;
@@ -3190,6 +3566,7 @@ document.addEventListener("click", (e) => {
     if (saved.onboardingDone) state.onboardingDone = saved.onboardingDone;
     if (typeof saved.bestStreak === "number") state.bestStreak = saved.bestStreak;
     if (typeof saved.sessionRotate === "boolean") state.sessionRotate = saved.sessionRotate;
+    if (Array.isArray(saved.savedRoutines)) state.savedRoutines = saved.savedRoutines;
   }
   if (state.onboardingDone) replaceHistory();
   checkClockIntegrity();

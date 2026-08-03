@@ -923,14 +923,41 @@ function migrateProfile(p) {
   return p;
 }
 
+// Corrections to built-in exercises shipped after a user already saved their library to
+// localStorage. Saved data always wins over SEED_LIBRARY on load (so custom edits and
+// deletions survive updates), which means fixes to default exercises never reach existing
+// users on their own. Each entry here patches one exercise by id ONLY if its saved fields
+// still match the old/incorrect value — so anyone who has since customized that exercise
+// keeps their own edit.
+const LIBRARY_FIXES = [
+  { id: "cycling", field: "equipment", from: "None", to: "Bike" },
+];
+function migrateLibrary(library) {
+  if (!Array.isArray(library)) return library;
+  LIBRARY_FIXES.forEach(fix => {
+    const ex = library.find(e => e.id === fix.id);
+    if (ex && ex[fix.field] === fix.from) ex[fix.field] = fix.to;
+  });
+  return library;
+}
+function migrateEquipmentList(list) {
+  if (!Array.isArray(list)) return list;
+  if (list.some(e => e.toLowerCase() === "bike")) return list;
+  // Insert "Bike" before "None" (matches DEFAULT_EQUIPMENT ordering) if present, else append.
+  const noneIdx = list.findIndex(e => e.toLowerCase() === "none");
+  if (noneIdx === -1) list.push("Bike");
+  else list.splice(noneIdx, 0, "Bike");
+  return list;
+}
+
 function applyPendingImport() {
   const pending = state.pendingImport;
   if (!pending || (!pending.rst && !pending.rsf)) return;
   const data = pending.rst;
   if (data) {
     if (data.routine) state.routine = data.routine;
-    if (data.library) state.library = data.library;
-    if (data.equipment) state.equipment = data.equipment;
+    if (data.library) state.library = migrateLibrary(data.library);
+    if (data.equipment) state.equipment = migrateEquipmentList(data.equipment);
     if (data.progress) state.progress = data.progress;
     if (data.theme) state.theme = data.theme;
     if (data.palette) state.palette = data.palette;
@@ -3154,8 +3181,8 @@ document.addEventListener("click", (e) => {
   const saved = loadData();
   if (saved) {
     if (saved.routine) state.routine = saved.routine;
-    if (saved.library) state.library = saved.library;
-    if (saved.equipment) state.equipment = saved.equipment;
+    if (saved.library) state.library = migrateLibrary(saved.library);
+    if (saved.equipment) state.equipment = migrateEquipmentList(saved.equipment);
     if (saved.progress) state.progress = saved.progress;
     if (saved.theme) state.theme = saved.theme;
     if (saved.palette) state.palette = saved.palette;

@@ -947,11 +947,23 @@ async function exportBackup() {
 // person without exposing their whole library, progress, or profile. The
 // recipient imports it into their own "My Routines" list via the same file
 // (see handleImportRoutineFile) — nothing about their existing data changes.
+function collectRoutineExerciseIds(routine) {
+  const ids = new Set();
+  Object.values(routine).forEach(day => day.blocks.forEach(b => ids.add(b.exerciseId)));
+  return Array.from(ids);
+}
+
+// A routine on its own is just day/block structure plus exerciseId references — if it
+// uses a custom exercise (or a built-in one the sender edited), the recipient won't have
+// a matching definition and it'd show up as "Unknown." So the export also bundles the
+// full definition of every exercise the routine actually uses, equipment included (an
+// exercise's equipment is just a field on it, not something stored separately).
 async function exportSavedRoutine(id) {
   const sr = state.savedRoutines.find(r => r.id === id);
   if (!sr) return;
+  const exercises = collectRoutineExerciseIds(sr.routine).map(exId => exById(exId)).filter(Boolean);
   const nowIso = new Date().toISOString();
-  const payload = { app: "RST", kind: "routine", version: 1, exportedAt: nowIso, name: sr.name, routine: sr.routine };
+  const payload = { app: "RST", kind: "routine", version: 1, exportedAt: nowIso, name: sr.name, routine: sr.routine, exercises };
   const stamp = nowIso.slice(0, 10);
   const safeName = sr.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "routine";
   const baseName = "rst-routine-" + safeName + "-" + stamp;
@@ -1017,6 +1029,25 @@ function handleImportFile(file) {
 function looksLikeRoutineFile(data) {
   return !!(data && typeof data === "object" && data.routine && typeof data.routine === "object");
 }
+// Adds any exercises bundled with an imported routine that the recipient doesn't already
+// have (by id) — real built-ins already exist for everyone via SEED_LIBRARY, so this only
+// ever adds genuinely custom exercises. Deliberately does NOT overwrite an exercise the
+// recipient already has: if the sender had edited a built-in exercise, the recipient keeps
+// their own version of it rather than having it silently replaced. Also registers any
+// equipment type those exercises need, so it shows up as a real option in pickers/filters
+// instead of just being inert text on the exercise.
+function mergeImportedExercises(exercises) {
+  if (!Array.isArray(exercises)) return;
+  exercises.forEach(ex => {
+    if (!ex || !ex.id || !ex.name) return;
+    if (!state.library.some(e => e.id === ex.id)) {
+      state.library.push(Object.assign({}, ex, { custom: true, hidden: false }));
+    }
+    if (ex.equipment && !state.equipment.some(e => e.toLowerCase() === ex.equipment.toLowerCase())) {
+      state.equipment.push(ex.equipment);
+    }
+  });
+}
 function handleImportRoutineFile(file) {
   state.routineImportError = "";
   const reader = new FileReader();
@@ -1026,6 +1057,7 @@ function handleImportRoutineFile(file) {
       if (!looksLikeRoutineFile(parsed)) {
         state.routineImportError = "That file doesn't look like an RST routine.";
       } else {
+        mergeImportedExercises(parsed.exercises);
         const name = (parsed.name && String(parsed.name).trim()) || file.name.replace(/\.(json|txt)$/i, "");
         const now = new Date().toISOString();
         state.savedRoutines.push({ id: uid("routine"), name, createdAt: now, updatedAt: now, routine: parsed.routine });
@@ -1522,7 +1554,7 @@ function renderDayTag(type, isRest) {
 function renderBlockRow(block, exercise, done, locked) {
   const name = exercise ? esc(exercise.name) : "Unknown exercise";
   const meta = block.durationSec
-    ? fmtDuration(block.durationSec)
+    ? (block.sets && block.sets > 1 ? block.sets+" × "+fmtDuration(block.durationSec) : fmtDuration(block.durationSec))
     : (block.sets+" × "+block.repsMin+(block.repsMax && block.repsMax !== block.repsMin ? "-"+block.repsMax : "")+" reps");
   // Instructions/video are expanded by default; collapsing one is a
   // per-block override remembered in state.openInfo.
@@ -1763,11 +1795,17 @@ function renderBuilder() {
     html += '  </div></div>';
     if (b.durationSec !== undefined) {
       const useSeconds = !ex || ex.category !== "cardio";
-      html += '  <div class="field-row">'+icon("clock",13)+
+      html += '  <div class="field-row">';
+      // Multiple sets only make sense for a timed hold (e.g. Plank) — a
+      // continuous cardio block is one session, not repeated rounds.
+      if (useSeconds) {
+        html += '<label>sets <input type="number" class="min-input" min="1" value="'+(b.sets||1)+'" data-action="edit-timed-sets" data-block-id="'+b.id+'" /></label>';
+      }
+      html += icon("clock",13)+
               (useSeconds
                 ? '<input type="number" class="num-input" min="5" step="5" value="'+b.durationSec+'" data-action="edit-duration-sec" data-block-id="'+b.id+'" /> seconds'
-                : '<input type="number" class="num-input" min="1" value="'+Math.round(b.durationSec/60)+'" data-action="edit-duration" data-block-id="'+b.id+'" /> minutes')+
-              '</div>';
+                : '<input type="number" class="num-input" min="1" value="'+Math.round(b.durationSec/60)+'" data-action="edit-duration" data-block-id="'+b.id+'" /> minutes');
+      html += '</div>';
     } else {
       html += '  <div class="field-row">'+
               '<label>sets <input type="number" class="min-input" value="'+b.sets+'" data-action="edit-field" data-field="sets" data-block-id="'+b.id+'" /></label>'+
@@ -1963,6 +2001,7 @@ function renderMyRoutinesModal() {
   html += '<button class="btn-outline" style="flex:1;" data-action="open-save-routine">'+icon("check",13)+' Save current</button>';
   html += '<button class="btn-outline" style="flex:1;" data-action="trigger-import-routine">'+icon("upload",13)+' Import</button>';
   html += '</div>';
+  html += '<div class="settings-desc" style="max-width:none;margin-bottom:14px;">Sharing a routine includes any custom exercises (and their equipment) it uses, so it works for whoever you send it to.</div>';
   html += '<input type="file" id="import-routine-file-input" accept="application/json,.json,text/plain,.txt" style="display:none;" />';
 
   if (state.savedRoutines.length === 0) {
@@ -2028,11 +2067,6 @@ function markSessionBlockDone(block) {
   }
 }
 function isSessionBlockComplete(block) {
-  if (block.durationSec !== undefined) {
-    const dKey = todayKey();
-    const doneIds = (state.progress[dKey] && state.progress[dKey].doneBlockIds) || [];
-    return doneIds.includes(block.id);
-  }
   return (state.sessionSets[block.id] || 0) >= (block.sets || 1);
 }
 // Called right after a set is logged or an exercise is completed, to decide
@@ -2073,8 +2107,18 @@ function startSessionTimer(block) {
       stopSessionTimer();
       if (!state.clockWarning) {
         const blocks = todaysSessionBlocks();
-        markSessionBlockDone(blocks[state.sessionIndex]);
-        sessionAdvance(blocks);
+        const block = blocks[state.sessionIndex];
+        const target = block.sets || 1;
+        const logged = (state.sessionSets[block.id] || 0) + 1;
+        state.sessionSets[block.id] = logged;
+        if (logged >= target) {
+          markSessionBlockDone(block);
+          sessionAdvance(blocks);
+        } else {
+          // More sets to go — reset the timer for the next round and stay
+          // on this exercise; the person taps Start again when ready.
+          state.sessionTimer = { blockId: block.id, remaining: block.durationSec, total: block.durationSec, running: false };
+        }
       }
       render();
     }
@@ -2117,7 +2161,10 @@ function renderSessionModal() {
 
   if (isDuration) {
     const timer = (state.sessionTimer && state.sessionTimer.blockId === block.id) ? state.sessionTimer : { remaining: block.durationSec, total: block.durationSec, running: false };
+    const target = block.sets || 1;
+    const logged = state.sessionSets[block.id] || 0;
     html += '<div class="card" style="text-align:center;padding:32px 14px;margin-bottom:16px;">';
+    if (target > 1) html += '<div class="settings-desc" style="max-width:none;margin-bottom:10px;">Set '+Math.min(logged+1,target)+' of '+target+'</div>';
     html += '<div id="session-timer-remaining" class="font-display" style="font-size:52px;margin-bottom:16px;">'+fmtClock(timer.remaining)+'</div>';
     html += '<div style="height:8px;border-radius:4px;background:var(--bg800);overflow:hidden;margin-bottom:18px;"><div id="session-timer-fill" style="height:100%;width:'+Math.max(0,(timer.remaining/timer.total)*100)+'%;background:var(--ember);"></div></div>';
     html += '<div class="form-row-2">';
@@ -2733,6 +2780,12 @@ function attachLiveInputs() {
     el.addEventListener("input", (e) => {
       const block = findBlock(el.dataset.blockId);
       if (block) block.durationSec = Math.max(5, Number(e.target.value) || 5);
+    });
+  });
+  document.querySelectorAll('[data-action="edit-timed-sets"]').forEach(el => {
+    el.addEventListener("input", (e) => {
+      const block = findBlock(el.dataset.blockId);
+      if (block) block.sets = Math.max(1, Number(e.target.value) || 1);
     });
   });
   document.querySelectorAll('[data-action="edit-note"]').forEach(el => {
@@ -3491,7 +3544,7 @@ document.addEventListener("click", (e) => {
     const blocks = todaysSessionBlocks();
     const block = blocks[state.sessionIndex];
     if (block) {
-      if (block.durationSec === undefined) state.sessionSets[block.id] = block.sets || 1;
+      state.sessionSets[block.id] = block.sets || 1;
       markSessionBlockDone(block);
     }
     sessionAdvance(blocks);

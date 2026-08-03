@@ -269,7 +269,7 @@ function icon(name, size, extraAttrs) {
 /* ------------------------------------------------------------------ */
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const DAY_SHORT = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
-const DEFAULT_EQUIPMENT = ["Bodyweight","Dumbbells","Curl Bar","Resistance Band","Kettlebell","Pull-up Bar","Bench / Chair","Jump Rope","None"];
+const DEFAULT_EQUIPMENT = ["Bodyweight","Dumbbells","Curl Bar","Resistance Band","Kettlebell","Pull-up Bar","Bench / Chair","Jump Rope","Bike","None"];
 
 const SEED_LIBRARY = [
   { id:"pushup", name:"Push-ups", equipment:"Bodyweight", category:"strength", muscle:"Chest / Triceps",
@@ -318,7 +318,7 @@ const SEED_LIBRARY = [
     instructions:"Hold the bar with hands close together in front of your thighs. Pull it straight up toward your chin, leading with your elbows, then lower with control." },
   { id:"jump-rope", name:"Jump Rope", equipment:"Jump Rope", category:"cardio", muscle:"Full Body",
     instructions:"Keep a light, steady bounce on the balls of your feet, elbows close to your body, turning the rope mostly with your wrists. Start slow and build a steady rhythm." },
-  { id:"cycling", name:"Cycling", equipment:"None", category:"cardio", muscle:"Legs",
+  { id:"cycling", name:"Cycling", equipment:"Bike", category:"cardio", muscle:"Legs",
     instructions:"Ride at a pace that keeps your heart rate elevated but sustainable for the full duration, keeping a smooth, even pedal stroke." },
   { id:"running", name:"Running", equipment:"None", category:"cardio", muscle:"Full Body",
     instructions:"Keep a relaxed, upright posture and a pace you can hold for the whole duration. Land lightly and let your stride shorten if you're tired rather than forcing a longer step." },
@@ -2043,6 +2043,27 @@ const SETTINGS_SECTIONS = [
   { id: "about",       label: "About",             desc: "App info",                                  icon: "info",      color: "#8A93A6" },
 ];
 
+// Index of individual settings within each section, so search can surface a specific
+// control (e.g. "Theme", "Export backup") and not just the seven top-level categories.
+const SETTINGS_ITEMS = [
+  { section: "profile",    label: "Gender, age, height & weight", desc: "Body stats used for Check My Workout", keywords: "profile stats body" },
+  { section: "profile",    label: "Goals",                        desc: "Build muscle, lose weight, and other fitness goals", keywords: "goal goals fitness" },
+  { section: "profile",    label: "Equipment you own",            desc: "Which equipment shows up in the exercise library", keywords: "equipment gear own have" },
+  { section: "profile",    label: "Check My Workout",             desc: "Personalized suggestions based on your profile and plan", keywords: "bmi suggestions check workout" },
+  { section: "appearance", label: "Theme",                        desc: "Switch between light and dark mode", keywords: "dark light mode theme" },
+  { section: "appearance", label: "Color",                        desc: "Pick an accent color for the whole app", keywords: "color palette accent ember ocean violet forest crimson slate" },
+  { section: "session",    label: "Session flow",                 desc: "Complete each exercise in order, or rotate between exercises", keywords: "rotate circuit superset sets order" },
+  { section: "data",       label: "Choose a suggested routine",   desc: "Pick a ready-made week built around your goals", keywords: "suggested routine template browse" },
+  { section: "data",       label: "Clear checked-off progress",   desc: "Wipes every completed checkmark on every date", keywords: "clear progress checkmarks wipe" },
+  { section: "data",       label: "Load sample routine",          desc: "Replaces your current week with the built-in Mon–Sun split", keywords: "sample routine load default" },
+  { section: "data",       label: "Clear routine to blank",       desc: "Removes every scheduled exercise so all seven days start empty", keywords: "clear routine blank empty" },
+  { section: "data",       label: "Reset exercise library",       desc: "Removes custom exercises and un-hides any default ones", keywords: "reset library exercises restore" },
+  { section: "backup",     label: "Export backup",                desc: "Share a backup file with your routine, library, progress, and profile", keywords: "export backup save share onedrive drive files download" },
+  { section: "backup",     label: "Import backup",                desc: "Restore from a previously exported backup file", keywords: "import backup restore upload" },
+  { section: "danger",     label: "Reset entire app",              desc: "Erases everything on this device and starts setup from scratch", keywords: "erase reset delete wipe everything danger" },
+  { section: "about",      label: "App info",                     desc: "Version and storage details", keywords: "about version info storage" },
+];
+
 function renderSettings() {
   return state.settingsSection ? renderSettingsSection(state.settingsSection) : renderSettingsMenu();
 }
@@ -2055,25 +2076,61 @@ function renderSettingsMenu() {
 
 function renderSettingsMenuList() {
   const q = state.settingsSearch.trim().toLowerCase();
-  const sections = q
-    ? SETTINGS_SECTIONS.filter(s => s.label.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q))
-    : SETTINGS_SECTIONS;
-  if (sections.length === 0) {
+
+  if (!q) {
+    return '<div class="settings-menu-list">' + SETTINGS_SECTIONS.map(settingsMenuRow).join('') + '</div>';
+  }
+
+  const matchedSections = SETTINGS_SECTIONS.filter(s =>
+    s.label.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q)
+  );
+  const matchedSectionIds = new Set(matchedSections.map(s => s.id));
+
+  // Only surface individual items whose parent section didn't already match wholesale,
+  // to avoid showing a setting twice when the whole category is already in the results.
+  const matchedItems = SETTINGS_ITEMS.filter(it => {
+    if (matchedSectionIds.has(it.section)) return false;
+    const hay = (it.label + ' ' + it.desc + ' ' + (it.keywords||'')).toLowerCase();
+    return hay.includes(q);
+  });
+
+  if (matchedSections.length === 0 && matchedItems.length === 0) {
     return '<div class="settings-menu-empty">No settings match "'+esc(state.settingsSearch)+'"</div>';
   }
-  let html = '<div class="settings-menu-list">';
-  sections.forEach(s => {
-    html += '<button class="settings-menu-row" data-action="open-settings-section" data-section="'+s.id+'">';
-    html += '<span class="settings-menu-icon" style="background:'+s.color+';">'+icon(s.icon,18)+'</span>';
-    html += '<span style="flex:1;min-width:0;">';
-    html += '<div class="settings-menu-label">'+s.label+'</div>';
-    html += '<div class="settings-menu-desc">'+s.desc+'</div>';
-    html += '</span>';
-    html += '<span class="settings-menu-chevron">'+icon("chevronRight",18)+'</span>';
-    html += '</button>';
-  });
-  html += '</div>';
+
+  let html = '';
+  if (matchedSections.length) {
+    html += '<div class="settings-menu-list">' + matchedSections.map(settingsMenuRow).join('') + '</div>';
+  }
+  if (matchedItems.length) {
+    html += '<div class="settings-menu-list" style="margin-top:'+(matchedSections.length?'14':'0')+'px;">';
+    matchedItems.forEach(it => {
+      const parent = SETTINGS_SECTIONS.find(s => s.id === it.section);
+      html += '<button class="settings-menu-row" data-action="open-settings-section" data-section="'+it.section+'">';
+      html += '<span class="settings-menu-icon" style="background:'+parent.color+';">'+icon(parent.icon,18)+'</span>';
+      html += '<span style="flex:1;min-width:0;">';
+      html += '<div class="settings-menu-label">'+esc(it.label)+'</div>';
+      html += '<div class="settings-menu-desc">'+esc(it.desc)+' &middot; <span style="color:var(--chalk-dim);">in '+esc(parent.label)+'</span></div>';
+      html += '</span>';
+      html += '<span class="settings-menu-chevron">'+icon("chevronRight",18)+'</span>';
+      html += '</button>';
+    });
+    html += '</div>';
+  }
   return html;
+}
+
+function settingsMenuRow(s) {
+  return (
+    '<button class="settings-menu-row" data-action="open-settings-section" data-section="'+s.id+'">'+
+    '<span class="settings-menu-icon" style="background:'+s.color+';">'+icon(s.icon,18)+'</span>'+
+    '<span style="flex:1;min-width:0;">'+
+    '<div class="settings-menu-label">'+s.label+'</div>'+
+    '<div class="settings-menu-desc">'+s.desc+'</div>'+
+    '</span>'+
+    '<span class="settings-menu-chevron">'+icon("chevronRight",18)+'</span>'+
+    '</button>'
+  );
 }
 
 function settingsSectionHeader(title) {

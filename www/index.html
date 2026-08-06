@@ -3673,12 +3673,19 @@ document.addEventListener("click", (e) => {
 })();
 </script>
 <script>
+// A service worker was previously used to cache the app shell for offline
+// use, but its cache-first strategy caused updates (like this one) to get
+// silently stuck — the browser kept serving the old cached index.html
+// forever. It's been retired: sw.js now self-destructs (clears its caches
+// and unregisters) the next time it checks in, and this cleans up
+// directly from the page too so nothing is left running.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((err) => {
-      console.error("SW registration failed:", err);
-    });
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => reg.unregister());
   });
+}
+if (window.caches) {
+  caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
 }
 </script>
 </body>

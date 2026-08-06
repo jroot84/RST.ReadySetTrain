@@ -140,8 +140,8 @@
   .dashed-btn { width:100%; display:flex; align-items:center; justify-content:center; gap:6px; padding:10px 0; border-radius:8px; border:1px dashed var(--line); color: var(--chalk-dim); font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; }
 
   /* modal */
-  .modal-overlay { position:fixed; inset:0; z-index:30; background:rgba(10,12,14,0.7); display:flex; align-items:flex-end; justify-content:center; }
-  .modal { width:100%; max-width:28rem; max-height:75vh; display:flex; flex-direction:column; background: var(--bg900); border:1px solid var(--line); border-radius:12px 12px 0 0; }
+  .modal-overlay { position:fixed; inset:0; top:var(--vv-top,0px); height:var(--vv-height,100vh); z-index:30; background:rgba(10,12,14,0.7); display:flex; align-items:flex-end; justify-content:center; }
+  .modal { width:100%; max-width:28rem; max-height:75%; display:flex; flex-direction:column; background: var(--bg900); border:1px solid var(--line); border-radius:12px 12px 0 0; }
   @media (min-width:640px){ .modal-overlay{ align-items:center; } .modal{ border-radius:12px; } }
   .modal-head { display:flex; align-items:center; justify-content:space-between; padding:16px 16px 8px; }
   .modal-head span { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:0.04em; font-size:16px; color: var(--chalk); }
@@ -152,6 +152,9 @@
   .picker-row { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border-radius:8px; background: var(--bg800); border:1px solid var(--line); text-align:left; margin-bottom:6px; }
   .picker-row .pname { font-weight:500; font-size:14px; color: var(--chalk); }
   .picker-row .pmeta { font-family:'JetBrains Mono',monospace; font-size:10px; color: var(--chalk-dim); margin-top:2px; }
+  .picker-row.added { border-color: var(--ember); background: rgba(232,98,44,0.08); }
+  .picker-row .added-badge { display:flex; align-items:center; gap:4px; color: var(--ember); font-family:'JetBrains Mono',monospace; font-size:11px; flex-shrink:0; }
+  .modal-footer { padding:10px 16px 16px; border-top:1px solid var(--line); flex-shrink:0; }
 
   /* library */
   .pill-row { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px; }
@@ -1204,6 +1207,7 @@ const state = {
   openInfo: {},               // blockId/exId -> bool
   pickerOpen: false,
   pickerQuery: "",
+  pickerAddedCounts: {},       // exId -> number added this picker session
   librarySearch: "",
   libraryEquip: "All",
   showAddExercise: false,
@@ -1849,16 +1853,27 @@ function renderPicker() {
     html += '</div>';
   }
   html += '<div class="modal-list" id="picker-list">'+renderPickerList(filtered)+'</div>';
+  html += '<div class="modal-footer"><button type="button" class="btn-primary" style="width:100%;" id="picker-done-btn" data-action="close-picker">'+pickerDoneLabel()+'</button></div>';
   html += '</div></div>';
   return html;
+}
+function pickerTotalAdded() {
+  return Object.values(state.pickerAddedCounts).reduce((sum, n) => sum + n, 0);
+}
+function pickerDoneLabel() {
+  const n = pickerTotalAdded();
+  return n > 0 ? "Done \u2014 " + n + " added" : "Done";
 }
 function renderPickerList(filtered) {
   if (filtered.length === 0) return '<div class="empty-note" style="text-align:center;padding:24px 0;">No matches.</div>';
   let html = "";
   filtered.forEach(ex => {
-    html += '<button class="picker-row" data-action="pick-exercise" data-ex-id="'+ex.id+'">';
+    const count = state.pickerAddedCounts[ex.id] || 0;
+    html += '<button class="picker-row'+(count>0?" added":"")+'" data-action="pick-exercise" data-ex-id="'+ex.id+'">';
     html += '<div><div class="pname">'+esc(ex.name)+'</div><div class="pmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+'</div></div>';
-    html += '<span style="display:flex;align-items:center;gap:6px;">'+(ex.timed?'<span style="color:var(--cyan);display:flex;">'+icon("clock",13)+'</span>':'')+'<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",14)+'</span></span>';
+    html += '<span style="display:flex;align-items:center;gap:8px;">';
+    if (count > 0) html += '<span class="added-badge">'+icon("check",13)+(count>1?' \u00d7'+count:'')+'</span>';
+    html += (ex.timed?'<span style="color:var(--cyan);display:flex;">'+icon("clock",13)+'</span>':'')+'<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",14)+'</span></span>';
     html += '</button>';
   });
   return html;
@@ -3043,7 +3058,7 @@ document.addEventListener("click", (e) => {
     saveData(); render(); return;
   }
   if (action === "open-picker") {
-    state.pickerOpen = true; state.pickerQuery = ""; state.pickerShowAllEquip = false;
+    state.pickerOpen = true; state.pickerQuery = ""; state.pickerShowAllEquip = false; state.pickerAddedCounts = {};
     pushHistory();
     render(); return;
   }
@@ -3081,9 +3096,18 @@ document.addEventListener("click", (e) => {
       } else {
         day.blocks.push(blk(ex.id, 3, 10, 12));
       }
+      state.pickerAddedCounts[ex.id] = (state.pickerAddedCounts[ex.id] || 0) + 1;
     }
     saveData();
-    closeModalViaBack();
+    // Keep the picker open so multiple exercises can be added in one pass —
+    // only re-render the list + Done button, so the search input keeps focus.
+    const q = state.pickerQuery.toLowerCase();
+    const ef = pickerEquipmentFilter();
+    const filtered = state.library.filter(e => !e.hidden && (e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q))) && (!ef.active || ef.owned.includes(e.equipment)));
+    const listEl = document.getElementById("picker-list");
+    if (listEl) listEl.innerHTML = renderPickerList(filtered);
+    const doneBtn = document.getElementById("picker-done-btn");
+    if (doneBtn) doneBtn.textContent = pickerDoneLabel();
     return;
   }
   if (action === "lib-filter") {
@@ -3602,6 +3626,23 @@ document.addEventListener("click", (e) => {
     return;
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Keyboard-aware viewport (keeps modals, e.g. exercise picker, from     */
+/* being clipped behind the on-screen keyboard on mobile)               */
+/* ------------------------------------------------------------------ */
+(function setupViewportFix() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const root = document.documentElement;
+  function update() {
+    root.style.setProperty("--vv-height", vv.height + "px");
+    root.style.setProperty("--vv-top", vv.offsetTop + "px");
+  }
+  vv.addEventListener("resize", update);
+  vv.addEventListener("scroll", update);
+  update();
+})();
 
 /* ------------------------------------------------------------------ */
 /* Boot                                                                  */

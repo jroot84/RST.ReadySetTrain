@@ -1269,6 +1269,7 @@ const state = {
   clockWarning: false,     // true when the device clock appears to have been rolled back
   settingsSection: null,   // null = category menu; otherwise the open section's id
   settingsSearch: "",
+  appUrlCopied: false,     // brief "Copied!" confirmation on the Share App screen
   // Exercise session
   sessionActive: false,
   sessionIndex: 0,
@@ -2654,7 +2655,7 @@ const SETTINGS_ITEMS = [
   { section: "tips",       label: "Just getting started",         desc: "Beginner-friendly training basics", keywords: "beginner starting new basics" },
   { section: "backup",     label: "Export backup",                desc: "Share a backup file with your routine, library, progress, and profile", keywords: "export backup save share onedrive drive files download" },
   { section: "backup",     label: "Import backup",                desc: "Restore from a previously exported backup file", keywords: "import backup restore upload" },
-  { section: "share",      label: "Share App",                    desc: "Download or share a branded invite graphic, or open the app link", keywords: "share app invite friends icon card link" },
+  { section: "share",      label: "Share App",                    desc: "Copy or share the app link", keywords: "share app invite link url" },
   { section: "danger",     label: "Reset entire app",              desc: "Erases everything on this device and starts setup from scratch", keywords: "erase reset delete wipe everything danger" },
   { section: "about",      label: "App info",                     desc: "Version and storage details", keywords: "about version info storage" },
 ];
@@ -2870,13 +2871,12 @@ function renderSettingsSection(id) {
   } else if (id === "share") {
     html += settingsSectionHeader("Share App");
     html += '<div class="card">';
-    html += '<canvas id="share-app-canvas" width="600" height="640" style="display:none;"></canvas>';
-    html += '<div id="share-app-preview" style="border-radius:10px;overflow:hidden;margin-bottom:12px;border:1px solid var(--line);"></div>';
+    html += '<div class="settings-desc" style="max-width:none;margin-bottom:12px;">'+esc(APP_URL)+'</div>';
     html += '<div class="form-row-2">';
-    html += '<button class="btn-outline" data-action="download-share-app">'+icon("download",14)+' Download</button>';
-    html += '<button class="btn-primary" data-action="share-app">'+icon("upload",14)+' Share</button>';
+    html += '<button class="btn-outline" data-action="copy-app-url">'+icon("copy",14)+' Copy Link</button>';
+    html += '<button class="btn-primary" data-action="share-app-url">'+icon("upload",14)+' Share</button>';
     html += '</div>';
-    html += '<a href="'+APP_URL+'" target="_blank" rel="noopener" class="dashed-btn" style="display:flex;justify-content:center;margin-top:12px;text-decoration:none;">'+icon("dumbbell",14)+' Open RST \u2022 Ready Set Train</a>';
+    if (state.appUrlCopied) html += '<div class="settings-desc" style="max-width:none;margin-top:10px;color:var(--ember);">Copied!</div>';
     html += '</div>';
 
   } else if (id === "about") {
@@ -3100,7 +3100,6 @@ function attachLiveInputs() {
 
   bindEditExerciseForm();
   renderBadgePreview();
-  renderShareAppPreview();
   const dayLabelInput = document.querySelector('[data-action="edit-day-label"]');
   if (dayLabelInput) dayLabelInput.addEventListener("input", (e) => {
     state.routine[state.builderDay].label = e.target.value;
@@ -3256,95 +3255,6 @@ function renderBadgePreview() {
     const canvas = document.getElementById("badge-canvas");
     const preview = document.getElementById("badge-preview");
     if (canvas && preview) preview.innerHTML = '<img src="'+canvas.toDataURL("image/png")+'" style="width:100%;display:block;" alt="Achievement badge preview" />';
-  };
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw).catch(draw);
-  else draw();
-}
-
-// Path helper for a rounded rectangle (manual path, no reliance on the
-// newer ctx.roundRect() so this also works on older iOS Safari).
-function canvasRoundedRectPath(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-// The app icon, preloaded once so the Share App card can draw it without
-// re-fetching every time the preview redraws.
-let _shareAppIconImg = null;
-let _shareAppIconLoaded = false;
-(function preloadShareAppIcon() {
-  const img = new Image();
-  img.onload = () => { _shareAppIconLoaded = true; renderShareAppPreview(); };
-  img.src = "icon.png";
-  _shareAppIconImg = img;
-})();
-
-// Draws the Share App invite card — same pattern as the streak badge card:
-// a generic branded graphic (icon + name + tagline) meant to be shared or
-// downloaded as an image via the native share sheet.
-function drawShareAppCanvas() {
-  const canvas = document.getElementById("share-app-canvas");
-  if (!canvas) return null;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  const cs = getComputedStyle(document.documentElement);
-  const ember = cs.getPropertyValue("--ember").trim() || "#E8622C";
-  const bg950 = cs.getPropertyValue("--bg950").trim() || "#14181C";
-  const bg900 = cs.getPropertyValue("--bg900").trim() || "#1B2126";
-  const chalk = cs.getPropertyValue("--chalk").trim() || "#ECE8E1";
-  const chalkDim = cs.getPropertyValue("--chalk-dim").trim() || "#8F99A1";
-  const W = canvas.width, H = canvas.height;
-
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, bg900);
-  grad.addColorStop(1, bg950);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
-  const iconSize = 140, iconX = W / 2 - iconSize / 2, iconY = 70;
-  ctx.save();
-  canvasRoundedRectPath(ctx, iconX, iconY, iconSize, iconSize, 28);
-  ctx.clip();
-  if (_shareAppIconLoaded && _shareAppIconImg) {
-    ctx.drawImage(_shareAppIconImg, iconX, iconY, iconSize, iconSize);
-  } else {
-    ctx.fillStyle = ember;
-    ctx.fillRect(iconX, iconY, iconSize, iconSize);
-  }
-  ctx.restore();
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = chalk;
-  ctx.font = "700 40px Oswald, sans-serif";
-  ctx.fillText("RST", W / 2, iconY + iconSize + 60);
-  ctx.font = "600 15px 'JetBrains Mono', monospace";
-  ctx.fillStyle = chalkDim;
-  ctx.fillText("READY SET TRAIN", W / 2, iconY + iconSize + 88);
-
-  ctx.fillStyle = ember;
-  ctx.fillRect(W / 2 - 90, iconY + iconSize + 112, 180, 6);
-
-  ctx.font = "600 18px 'JetBrains Mono', monospace";
-  ctx.fillStyle = chalk;
-  ctx.fillText("Weekly routines \u00b7 Library \u00b7 Streaks", W / 2, iconY + iconSize + 154);
-  ctx.font = "500 14px 'JetBrains Mono', monospace";
-  ctx.fillStyle = chalkDim;
-  ctx.fillText("Free \u00b7 No account needed", W / 2, iconY + iconSize + 180);
-
-  return canvas;
-}
-function renderShareAppPreview() {
-  if (!document.getElementById("share-app-canvas")) return;
-  const draw = () => {
-    drawShareAppCanvas();
-    const canvas = document.getElementById("share-app-canvas");
-    const preview = document.getElementById("share-app-preview");
-    if (canvas && preview) preview.innerHTML = '<img src="'+canvas.toDataURL("image/png")+'" style="width:100%;display:block;" alt="RST invite card" />';
   };
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw).catch(draw);
   else draw();
@@ -3633,45 +3543,43 @@ document.addEventListener("click", (e) => {
     });
     return;
   }
-  if (action === "download-share-app") {
-    const canvas = document.getElementById("share-app-canvas");
-    if (!canvas) return;
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "rst-invite.png";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    });
+  if (action === "copy-app-url") {
+    const doCopy = async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(APP_URL);
+        } else {
+          const ta = document.createElement("textarea");
+          ta.value = APP_URL;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+        state.appUrlCopied = true;
+        render();
+        setTimeout(() => { state.appUrlCopied = false; render(); }, 2000);
+      } catch (err) {
+        // Clipboard access denied or unsupported — nothing more to do here.
+      }
+    };
+    doCopy();
     return;
   }
-  if (action === "share-app") {
-    const canvas = document.getElementById("share-app-canvas");
-    if (!canvas) return;
-    const shareText = "Check out RST \u2022 Ready Set Train \u2014 a free workout routine tracker with a calendar, exercise library, and streaks.";
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
+  if (action === "share-app-url") {
+    (async () => {
       try {
-        const file = new File([blob], "rst-invite.png", { type: "image/png" });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: "RST \u2022 Ready Set Train", text: shareText });
-          return;
-        }
         if (navigator.share) {
-          await navigator.share({ title: "RST \u2022 Ready Set Train", text: shareText });
+          await navigator.share({ url: APP_URL });
           return;
         }
       } catch (err) {
         if (err && err.name === "AbortError") return; // user cancelled — do nothing
       }
-      // No Web Share support on this browser — open a text message with the
-      // summary pre-filled (the image itself can't attach via this fallback).
-      window.location.href = "sms:&body=" + encodeURIComponent(shareText);
-    });
+      window.location.href = "sms:&body=" + encodeURIComponent(APP_URL);
+    })();
     return;
   }
   if (action === "use-template") {

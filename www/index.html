@@ -101,6 +101,8 @@
   .block-detail { padding: 10px 14px 14px; border-top:1px solid var(--line); }
   .block-detail p { margin:0 0 10px; font-size:13px; line-height:1.5; color: var(--chalk-dim); }
   .yt-link { display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color: var(--ember); }
+  .swap-btn { display:inline-flex; align-items:center; gap:6px; margin-top:10px; padding:7px 12px; border:1px solid var(--line); border-radius:6px; background: var(--bg900); font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color: var(--cyan); }
+  .swap-btn:active { background: var(--bg950); }
 
   .banner { border-radius:8px; padding:12px 16px; display:flex; align-items:center; gap:8px; font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:0.04em; font-size:14px; background: var(--ember-wash); border:1px solid var(--ember); color: var(--ember); margin-bottom:16px; }
 
@@ -1233,6 +1235,10 @@ const state = {
   editForm: null,
   profile: { gender:"", age:"", heightFt:"", heightIn:"", weightLbs:"", goals:[], availableEquipment:null },
   pickerShowAllEquip: false,
+  swapOpen: false,          // swap-exercise modal open?
+  swapBlockId: null,        // block.id of the exercise being swapped
+  swapDow: null,            // day-of-week index the block lives on
+  swapQuery: "",
   onboardingDone: false,
   showCheckModal: false,
   pendingImport: null,     // { fileName, data } awaiting confirmation
@@ -1271,7 +1277,7 @@ function applyTheme() {
 let applyingPopState = false;
 
 function historySnapshot() {
-  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal, showManageEquipment: state.showManageEquipment, showSuggestedModal: state.showSuggestedModal, showSaveRoutineModal: state.showSaveRoutineModal, showMyRoutinesModal: state.showMyRoutinesModal, renamingSavedRoutineId: state.renamingSavedRoutineId, showAddExercise: state.showAddExercise, showEditExercise: state.showEditExercise, sessionActive: state.sessionActive, showBadgeModal: state.showBadgeModal, settingsSection: state.settingsSection };
+  return { tab: state.tab, pickerOpen: state.pickerOpen, showCheckModal: state.showCheckModal, showManageEquipment: state.showManageEquipment, showSuggestedModal: state.showSuggestedModal, showSaveRoutineModal: state.showSaveRoutineModal, showMyRoutinesModal: state.showMyRoutinesModal, renamingSavedRoutineId: state.renamingSavedRoutineId, showAddExercise: state.showAddExercise, showEditExercise: state.showEditExercise, sessionActive: state.sessionActive, showBadgeModal: state.showBadgeModal, settingsSection: state.settingsSection, swapOpen: state.swapOpen };
 }
 function pushHistory() {
   if (applyingPopState) return;
@@ -1292,7 +1298,7 @@ function replaceHistory() {
 function closeModalViaBack() {
   // If the current history entry represents the open modal, let the
   // browser's own back navigation close it (keeps stack consistent).
-  if (history.state && (history.state.pickerOpen || history.state.showCheckModal || history.state.showManageEquipment || history.state.showSuggestedModal || history.state.showSaveRoutineModal || history.state.showMyRoutinesModal || history.state.renamingSavedRoutineId || history.state.showAddExercise || history.state.showEditExercise || history.state.sessionActive || history.state.showBadgeModal || history.state.settingsSection)) {
+  if (history.state && (history.state.pickerOpen || history.state.showCheckModal || history.state.showManageEquipment || history.state.showSuggestedModal || history.state.showSaveRoutineModal || history.state.showMyRoutinesModal || history.state.renamingSavedRoutineId || history.state.showAddExercise || history.state.showEditExercise || history.state.sessionActive || history.state.showBadgeModal || history.state.settingsSection || history.state.swapOpen)) {
     history.back();
   } else {
     state.pickerOpen = false;
@@ -1307,13 +1313,14 @@ function closeModalViaBack() {
     state.sessionActive = false;
     state.showBadgeModal = false;
     state.settingsSection = null;
+    state.swapOpen = false;
     render();
   }
 }
 window.addEventListener("popstate", (e) => {
   if (!state.onboardingDone) return; // nothing to navigate before setup is done
   applyingPopState = true;
-  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false, showManageEquipment: false, showSuggestedModal: false, showSaveRoutineModal: false, showMyRoutinesModal: false, renamingSavedRoutineId: null, showAddExercise: false, showEditExercise: false, sessionActive: false, showBadgeModal: false, settingsSection: null };
+  const snap = e.state || { tab: "today", pickerOpen: false, showCheckModal: false, showManageEquipment: false, showSuggestedModal: false, showSaveRoutineModal: false, showMyRoutinesModal: false, renamingSavedRoutineId: null, showAddExercise: false, showEditExercise: false, sessionActive: false, showBadgeModal: false, settingsSection: null, swapOpen: false };
   state.tab = snap.tab;
   state.pickerOpen = !!snap.pickerOpen;
   state.showCheckModal = !!snap.showCheckModal;
@@ -1327,6 +1334,7 @@ window.addEventListener("popstate", (e) => {
   state.sessionActive = !!snap.sessionActive;
   state.showBadgeModal = !!snap.showBadgeModal;
   state.settingsSection = snap.settingsSection || null;
+  state.swapOpen = !!snap.swapOpen;
   stopSessionTimer();
   render();
   applyingPopState = false;
@@ -1616,7 +1624,7 @@ function renderDayTag(type, isRest) {
   return '<span class="day-tag '+(isCardio?"cardio":"strength")+'">'+icon(isCardio?"wind":"flame",11)+(isCardio?"Cardio":"Strength")+'</span>';
 }
 
-function renderBlockRow(block, exercise, done, locked) {
+function renderBlockRow(block, exercise, done, locked, dow) {
   const name = exercise ? esc(exercise.name) : "Unknown exercise";
   const meta = block.durationSec
     ? (block.sets && block.sets > 1 ? block.sets+" × "+fmtDuration(block.durationSec) : fmtDuration(block.durationSec))
@@ -1645,6 +1653,9 @@ function renderBlockRow(block, exercise, done, locked) {
     html += '  <div class="block-detail">';
     if (exercise.instructions) html += '<p>'+esc(exercise.instructions)+'</p>';
     html += '<a class="yt-link" href="'+youtubeSearchUrl(exercise.name)+'" target="_blank" rel="noopener noreferrer">'+icon("youtube",14)+' Watch "'+esc(exercise.name)+'" on YouTube</a>';
+    if (typeof dow === "number") {
+      html += '<button type="button" class="swap-btn" data-action="open-swap" data-block-id="'+block.id+'" data-dow="'+dow+'">'+icon("repeat",13)+' Swap exercise</button>';
+    }
     html += '  </div>';
   }
   html += '</div>';
@@ -1725,7 +1736,7 @@ function renderToday() {
   } else if (day.blocks.length === 0) {
     html += '<div class="empty-note">Nothing scheduled yet — add exercises in Routine, or mark this a rest day.</div>';
   } else {
-    day.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), done.includes(b.id), false); });
+    day.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), done.includes(b.id), false, dow); });
   }
   return html;
 }
@@ -1803,7 +1814,7 @@ function renderCalendar() {
   } else if (selDay.blocks.length === 0) {
     html += '<div class="empty-note">Nothing scheduled — add exercises in Routine, or mark this a rest day.</div>';
   } else {
-    selDay.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), selDone.includes(b.id), selLocked); });
+    selDay.blocks.forEach(b => { html += renderBlockRow(b, exById(b.exerciseId), selDone.includes(b.id), selLocked, selDow); });
   }
   return html;
 }
@@ -1934,6 +1945,72 @@ function renderPickerList(filtered) {
     html += '<div><div class="pname">'+esc(ex.name)+'</div><div class="pmeta">'+esc(ex.equipment)+' · '+esc(ex.muscle)+'</div></div>';
     html += '<span style="display:flex;align-items:center;gap:8px;">';
     if (count > 0) html += '<span class="added-badge">'+icon("check",13)+(count>1?' \u00d7'+count:'')+'</span>';
+    html += (ex.timed?'<span style="color:var(--cyan);display:flex;">'+icon("clock",13)+'</span>':'')+'<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",14)+'</span></span>';
+    html += '</button>';
+  });
+  return html;
+}
+
+/* ------------------------------------------------------------------ */
+/* Swap exercise modal                                                  */
+/* ------------------------------------------------------------------ */
+// A block's shape (timed vs sets/reps) is fixed at creation time, so a
+// swap candidate has to share that shape or the block's meta line (and
+// stored durationSec/sets/reps fields) would stop making sense.
+function swapShapeKey(ex) {
+  return ex.category === "cardio" || !!ex.timed;
+}
+// Comparable, not identical: candidates are scored so the swap stays
+// close in spirit to the exercise it's replacing — same muscle group,
+// similar intensity, similar equipment-vs-bodyweight character — with a
+// small nudge toward equipment the person actually owns. Filtering would
+// throw options away; scoring just sorts the good matches to the top
+// while still letting the person pick something else entirely.
+function swapCandidates(ex, query) {
+  if (!ex) return [];
+  const shape = swapShapeKey(ex);
+  const q = (query || "").trim().toLowerCase();
+  const owned = state.profile.availableEquipment || state.equipment;
+  const usesEquipment = (eq) => eq !== "None" && eq !== "Bodyweight";
+  return state.library
+    .filter(e => !e.hidden && e.id !== ex.id && swapShapeKey(e) === shape)
+    .filter(e => !q || e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q)))
+    .map(e => {
+      let score = 0;
+      if (e.muscle === ex.muscle) score += 4;
+      if (e.intensity === ex.intensity) score += 2;
+      if (usesEquipment(e.equipment) === usesEquipment(ex.equipment)) score += 1;
+      if (owned.includes(e.equipment)) score += 1;
+      return { ex: e, score };
+    })
+    .sort((a, b) => b.score - a.score || a.ex.name.localeCompare(b.ex.name))
+    .map(x => x.ex);
+}
+function renderSwapModal() {
+  const day = state.routine[state.swapDow];
+  const block = day && day.blocks.find(b => b.id === state.swapBlockId);
+  const current = block ? exById(block.exerciseId) : null;
+  if (!day || !block || !current) {
+    // Underlying block vanished (e.g. removed elsewhere) — nothing sane to show.
+    return '<div class="modal-overlay" data-action="close-swap"><div class="modal"><div class="modal-head"><span class="font-display">Swap exercise</span><button data-action="close-swap">'+icon("x",18)+'</button></div><div class="modal-list"><div class="empty-note" style="text-align:center;padding:24px 0;">This exercise is no longer scheduled.</div></div></div></div>';
+  }
+  const candidates = swapCandidates(current, state.swapQuery);
+  let html = '<div class="modal-overlay" data-action="close-swap">';
+  html += '<div class="modal">';
+  html += '<div class="modal-head"><span class="font-display">Swap exercise</span><button data-action="close-swap">'+icon("x",18)+'</button></div>';
+  html += '<div class="settings-desc" style="max-width:none;margin:0 16px 10px;">Replacing <strong style="color:var(--chalk);">'+esc(current.name)+'</strong> on '+DAY_NAMES[state.swapDow]+' — this updates every '+DAY_NAMES[state.swapDow]+' going forward.</div>';
+  html += '<div class="search-box"><span style="color:var(--chalk-dim);display:flex;">'+icon("search",14)+'</span><input id="swap-search" placeholder="Search by name or muscle group..." value="'+esc(state.swapQuery)+'" /></div>';
+  html += '<div class="modal-list" id="swap-list">'+renderSwapList(candidates)+'</div>';
+  html += '</div></div>';
+  return html;
+}
+function renderSwapList(candidates) {
+  if (candidates.length === 0) return '<div class="empty-note" style="text-align:center;padding:24px 0;">No comparable exercises found.</div>';
+  let html = "";
+  candidates.forEach(ex => {
+    html += '<button class="picker-row" data-action="swap-select" data-ex-id="'+ex.id+'">';
+    html += '<div><div class="pname">'+esc(ex.name)+'</div><div class="pmeta">'+esc(ex.equipment)+' \u00b7 '+esc(ex.muscle)+'</div></div>';
+    html += '<span style="display:flex;align-items:center;gap:8px;">';
     html += (ex.timed?'<span style="color:var(--cyan);display:flex;">'+icon("clock",13)+'</span>':'')+'<span style="color:'+(ex.category==="cardio"?"var(--cyan)":"var(--ember)")+';display:flex;">'+icon(ex.category==="cardio"?"wind":"flame",14)+'</span></span>';
     html += '</button>';
   });
@@ -2784,7 +2861,8 @@ function render() {
     (state.showAddExercise ? renderAddExerciseModal() : "") +
     (state.showEditExercise ? renderEditExerciseModal() : "") +
     (state.sessionActive ? renderSessionModal() : "") +
-    (state.showBadgeModal ? renderBadgeModal() : "");
+    (state.showBadgeModal ? renderBadgeModal() : "") +
+    (state.swapOpen ? renderSwapModal() : "");
   attachLiveInputs();
 }
 
@@ -2816,6 +2894,19 @@ function attachLiveInputs() {
       const ef = pickerEquipmentFilter();
       const filtered = state.library.filter(ex => !ex.hidden && (ex.name.toLowerCase().includes(q) || (ex.muscle && ex.muscle.toLowerCase().includes(q))) && (!ef.active || ef.owned.includes(ex.equipment)));
       document.getElementById("picker-list").innerHTML = renderPickerList(filtered);
+    });
+  }
+  // Swap-exercise search
+  const swapSearch = document.getElementById("swap-search");
+  if (swapSearch) {
+    swapSearch.focus();
+    swapSearch.setSelectionRange(swapSearch.value.length, swapSearch.value.length);
+    swapSearch.addEventListener("input", (e) => {
+      state.swapQuery = e.target.value;
+      const day = state.routine[state.swapDow];
+      const block = day && day.blocks.find(b => b.id === state.swapBlockId);
+      const current = block ? exById(block.exerciseId) : null;
+      document.getElementById("swap-list").innerHTML = renderSwapList(swapCandidates(current, state.swapQuery));
     });
   }
   // Add-exercise form fields (state-only, no re-render needed until submit)
@@ -3174,6 +3265,30 @@ document.addEventListener("click", (e) => {
     if (listEl) listEl.innerHTML = renderPickerList(filtered);
     const doneBtn = document.getElementById("picker-done-btn");
     if (doneBtn) doneBtn.textContent = pickerDoneLabel();
+    return;
+  }
+  if (action === "open-swap") {
+    state.swapBlockId = t.dataset.blockId;
+    state.swapDow = Number(t.dataset.dow);
+    state.swapQuery = "";
+    state.swapOpen = true;
+    pushHistory();
+    render(); return;
+  }
+  if (action === "close-swap") {
+    if (t.classList.contains("modal-overlay") && e.target !== t) return;
+    closeModalViaBack();
+    return;
+  }
+  if (action === "swap-select") {
+    const day = state.routine[state.swapDow];
+    const block = day && day.blocks.find(b => b.id === state.swapBlockId);
+    const newEx = exById(t.dataset.exId);
+    if (block && newEx) {
+      block.exerciseId = newEx.id;
+      saveData();
+    }
+    closeModalViaBack();
     return;
   }
   if (action === "lib-filter") {

@@ -274,6 +274,7 @@ const ICON = {
   lock: '<rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>',
   play: '<path d="M6 4l14 8-14 8V4z"/>',
   pause: '<rect x="5" y="4" width="5" height="16"/><rect x="14" y="4" width="5" height="16"/>',
+  lightbulb: '<path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0012 2z"/>',
 };
 function icon(name, size, extraAttrs) {
   size = size || 16;
@@ -1835,6 +1836,7 @@ function renderBuilder() {
   html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
   html += '<button class="btn-outline" style="flex:1;" data-action="open-save-routine">'+icon("check",13)+' Save routine</button>';
   html += '<button class="btn-outline" style="flex:1;" data-action="open-my-routines">'+icon("library",13)+' My Routines'+(state.savedRoutines.length?' ('+state.savedRoutines.length+')':'')+'</button>';
+  html += '<button class="btn-outline" style="flex:0 0 auto;padding:0 13px;" data-action="open-tips" aria-label="Training tips">'+icon("lightbulb",16)+'</button>';
   html += '</div>';
   html += '<div class="section-label font-mono">Build your week</div>';
   html += '<div class="day-tabs" style="margin-bottom:20px;">';
@@ -1960,31 +1962,53 @@ function renderPickerList(filtered) {
 function swapShapeKey(ex) {
   return ex.category === "cardio" || !!ex.timed;
 }
-// Comparable, not identical: candidates are scored so the swap stays
-// close in spirit to the exercise it's replacing — same muscle group,
-// similar intensity, similar equipment-vs-bodyweight character — with a
-// small nudge toward equipment the person actually owns. Filtering would
-// throw options away; scoring just sorts the good matches to the top
-// while still letting the person pick something else entirely.
-function swapCandidates(ex, query) {
-  if (!ex) return [];
+// Comparable, not identical — but "comparable" is a hierarchy, not a single
+// blended score. We try progressively looser tiers and stop at the first
+// one that has options, so the list a person sees is always the tightest
+// relevant match rather than a long tail of unrelated exercises sorted to
+// the bottom:
+//   1. same muscle group AND same equipment  (truest substitute)
+//   2. same muscle group, any equipment       (equipment-driven swap)
+//   3. same shape (timed vs sets/reps) only    (rare fallback — that muscle
+//      group has no other options in the library)
+// A search query bypasses tiering entirely and searches the full shape-
+// matched pool, since typing is the person deliberately looking beyond
+// the suggested matches.
+function swapTiers(ex) {
   const shape = swapShapeKey(ex);
+  const pool = state.library.filter(e => !e.hidden && e.id !== ex.id && swapShapeKey(e) === shape);
+  return {
+    pool,
+    sameMuscleAndEquip: pool.filter(e => e.muscle === ex.muscle && e.equipment === ex.equipment),
+    sameMuscle: pool.filter(e => e.muscle === ex.muscle),
+  };
+}
+function swapScore(e, ex, owned, usesEquipment) {
+  let score = 0;
+  if (e.intensity === ex.intensity) score += 2;
+  if (usesEquipment(e.equipment) === usesEquipment(ex.equipment)) score += 1;
+  if (owned.includes(e.equipment)) score += 1;
+  return score;
+}
+// Returns { tier: 'equip'|'muscle'|'other'|'search', list: [exercise,...] }
+function swapCandidates(ex, query) {
+  if (!ex) return { tier: "other", list: [] };
   const q = (query || "").trim().toLowerCase();
   const owned = state.profile.availableEquipment || state.equipment;
   const usesEquipment = (eq) => eq !== "None" && eq !== "Bodyweight";
-  return state.library
-    .filter(e => !e.hidden && e.id !== ex.id && swapShapeKey(e) === shape)
-    .filter(e => !q || e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q)))
-    .map(e => {
-      let score = 0;
-      if (e.muscle === ex.muscle) score += 4;
-      if (e.intensity === ex.intensity) score += 2;
-      if (usesEquipment(e.equipment) === usesEquipment(ex.equipment)) score += 1;
-      if (owned.includes(e.equipment)) score += 1;
-      return { ex: e, score };
-    })
+  const rank = (list) => list
+    .map(e => ({ ex: e, score: swapScore(e, ex, owned, usesEquipment) }))
     .sort((a, b) => b.score - a.score || a.ex.name.localeCompare(b.ex.name))
     .map(x => x.ex);
+  const { pool, sameMuscleAndEquip, sameMuscle } = swapTiers(ex);
+
+  if (q) {
+    const matches = pool.filter(e => e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q)));
+    return { tier: "search", list: rank(matches) };
+  }
+  if (sameMuscleAndEquip.length) return { tier: "equip", list: rank(sameMuscleAndEquip) };
+  if (sameMuscle.length) return { tier: "muscle", list: rank(sameMuscle) };
+  return { tier: "other", list: rank(pool) };
 }
 function renderSwapModal() {
   const day = state.routine[state.swapDow];
@@ -1994,15 +2018,26 @@ function renderSwapModal() {
     // Underlying block vanished (e.g. removed elsewhere) — nothing sane to show.
     return '<div class="modal-overlay" data-action="close-swap"><div class="modal"><div class="modal-head"><span class="font-display">Swap exercise</span><button data-action="close-swap">'+icon("x",18)+'</button></div><div class="modal-list"><div class="empty-note" style="text-align:center;padding:24px 0;">This exercise is no longer scheduled.</div></div></div></div>';
   }
-  const candidates = swapCandidates(current, state.swapQuery);
+  const result = swapCandidates(current, state.swapQuery);
   let html = '<div class="modal-overlay" data-action="close-swap">';
   html += '<div class="modal">';
   html += '<div class="modal-head"><span class="font-display">Swap exercise</span><button data-action="close-swap">'+icon("x",18)+'</button></div>';
   html += '<div class="settings-desc" style="max-width:none;margin:0 16px 10px;">Replacing <strong style="color:var(--chalk);">'+esc(current.name)+'</strong> on '+DAY_NAMES[state.swapDow]+' — this updates every '+DAY_NAMES[state.swapDow]+' going forward.</div>';
   html += '<div class="search-box"><span style="color:var(--chalk-dim);display:flex;">'+icon("search",14)+'</span><input id="swap-search" placeholder="Search by name or muscle group..." value="'+esc(state.swapQuery)+'" /></div>';
-  html += '<div class="modal-list" id="swap-list">'+renderSwapList(candidates)+'</div>';
+  html += '<div id="swap-tier-label">'+renderSwapTierLabel(result.tier)+'</div>';
+  html += '<div class="modal-list" id="swap-list">'+renderSwapList(result.list)+'</div>';
   html += '</div></div>';
   return html;
+}
+function renderSwapTierLabel(tier) {
+  const text = {
+    equip: "Same muscle group \u00b7 same equipment",
+    muscle: "Same muscle group \u00b7 other equipment",
+    other: "No other exercises for that muscle group \u2014 showing other options",
+    search: "Search results",
+  }[tier];
+  if (!text) return "";
+  return '<div class="settings-desc" style="max-width:none;margin:0 16px 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;font-family:\'JetBrains Mono\',monospace;">'+text+'</div>';
 }
 function renderSwapList(candidates) {
   if (candidates.length === 0) return '<div class="empty-note" style="text-align:center;padding:24px 0;">No comparable exercises found.</div>';
@@ -2501,9 +2536,65 @@ const SETTINGS_SECTIONS = [
   { id: "appearance",  label: "Appearance",        desc: "Theme and accent color",                    icon: "sun",       color: "#3B82F6" },
   { id: "session",     label: "Workout Session",   desc: "How Start Session moves between exercises", icon: "zap",       color: "#E8622C" },
   { id: "data",        label: "Routine & Library", desc: "Suggested routines, resets",                icon: "repeat",    color: "#43A047" },
+  { id: "tips",        label: "Training Tips",     desc: "Building a routine, form, and recovery basics", icon: "lightbulb", color: "#F5A623" },
   { id: "backup",      label: "Backup",            desc: "Export or import your data",                icon: "download",  color: "#8B5CF6" },
   { id: "danger",      label: "Danger Zone",       desc: "Erase everything on this device",            icon: "alert",     color: "#DC2626" },
   { id: "about",       label: "About",             desc: "App info",                                  icon: "info",      color: "#8A93A6" },
+];
+
+// Static, evergreen guidance — grouped so it reads like a short reference,
+// not a wall of text. Each group is its own collapsible card in the Tips
+// section, reusing the same toggle-info action the exercise detail panels
+// already use, so open/closed state persists the normal way.
+const TRAINING_TIPS = [
+  {
+    id: "tip-routine",
+    title: "Building a balanced routine",
+    icon: "repeat",
+    color: "#43A047",
+    points: [
+      "Balance push (chest/shoulders/triceps), pull (back/biceps), and legs across the week so the same muscle group isn't trained on back-to-back days.",
+      "Give each major muscle group at least one full rest day between strength sessions \u2014 the repair and growth happens during recovery, not the workout itself.",
+      "Progress gradually: add a rep, a set, or a little more resistance every week or two rather than jumping to a much heavier load all at once.",
+      "Mix in at least one lighter or active-recovery day \u2014 a walk, stretching, or mobility work \u2014 even during a demanding week.",
+    ]
+  },
+  {
+    id: "tip-form",
+    title: "Form & safety",
+    icon: "activity",
+    color: "#E0446B",
+    points: [
+      "Spend 5\u201310 minutes warming up with light cardio and dynamic movement before heavier sets \u2014 cold muscles and joints are more injury-prone.",
+      "Prioritize full range of motion and controlled form over speed or extra weight; a smaller, clean rep does more than a bigger sloppy one.",
+      "Exhale on the hard part of a lift and inhale on the release \u2014 holding your breath through a heavy set spikes blood pressure unnecessarily.",
+      "Sharp or joint pain is different from ordinary muscle fatigue \u2014 stop and reassess rather than pushing through it.",
+    ]
+  },
+  {
+    id: "tip-recovery",
+    title: "Recovery & consistency",
+    icon: "moon",
+    color: "#8B5CF6",
+    points: [
+      "Sleep is when most muscle repair happens \u2014 aim for 7\u20139 hours, especially after hard training days.",
+      "Hydrate before, during, and after workouts; even mild dehydration measurably hurts strength and endurance.",
+      "A routine you'll actually keep doing beats a perfect plan you abandon after two weeks \u2014 consistency compounds over months.",
+      "Spreading protein intake across the day, not just right after a workout, supports muscle repair better than one big dose.",
+    ]
+  },
+  {
+    id: "tip-beginner",
+    title: "Just getting started",
+    icon: "zap",
+    color: "#E8622C",
+    points: [
+      "Start with 2\u20133 strength sessions a week rather than daily \u2014 your body needs time to adapt to a new stimulus.",
+      "Bodyweight and light-resistance moves build a real base; heavier equipment can come later as form and confidence improve.",
+      "Track how you feel, not just numbers \u2014 energy, sleep, and mood are honest signals of whether a routine is sustainable.",
+      "Missing a day isn't a failure \u2014 the goal is the trend over months, not an unbroken streak.",
+    ]
+  },
 ];
 
 // Index of individual settings within each section, so search can surface a specific
@@ -2522,6 +2613,10 @@ const SETTINGS_ITEMS = [
   { section: "data",       label: "Load sample routine",          desc: "Replaces your current week with the built-in Mon–Sun split", keywords: "sample routine load default" },
   { section: "data",       label: "Clear routine to blank",       desc: "Removes every scheduled exercise so all seven days start empty", keywords: "clear routine blank empty" },
   { section: "data",       label: "Reset exercise library",       desc: "Removes custom exercises and un-hides any default ones", keywords: "reset library exercises restore" },
+  { section: "tips",       label: "Building a balanced routine",  desc: "Muscle balance, rest days, progressive overload", keywords: "routine balance rest overload push pull legs progressive" },
+  { section: "tips",       label: "Form & safety",                desc: "Warm-up, breathing, and injury awareness", keywords: "form safety warmup warm-up injury breathing pain" },
+  { section: "tips",       label: "Recovery & consistency",       desc: "Sleep, hydration, protein, and sticking with it", keywords: "recovery sleep hydration protein consistency rest" },
+  { section: "tips",       label: "Just getting started",         desc: "Beginner-friendly training basics", keywords: "beginner starting new basics" },
   { section: "backup",     label: "Export backup",                desc: "Share a backup file with your routine, library, progress, and profile", keywords: "export backup save share onedrive drive files download" },
   { section: "backup",     label: "Import backup",                desc: "Restore from a previously exported backup file", keywords: "import backup restore upload" },
   { section: "danger",     label: "Reset entire app",              desc: "Erases everything on this device and starts setup from scratch", keywords: "erase reset delete wipe everything danger" },
@@ -2716,6 +2811,26 @@ function renderSettingsSection(id) {
     html += settingsAction("reset-app", "Reset entire app", "Erases everything on this device — routine, saved routines, library, equipment list, progress, profile, and appearance — and takes you back through setup from scratch. This can't be undone.");
     html += '</div>';
 
+  } else if (id === "tips") {
+    html += settingsSectionHeader("Training Tips");
+    html += '<div class="settings-desc" style="max-width:none;margin:0 0 14px;">General guidance for building a routine and training safely \u2014 not a substitute for advice from a doctor, physical therapist, or certified trainer, especially with an injury or medical condition.</div>';
+    TRAINING_TIPS.forEach(cat => {
+      const open = !!state.openInfo[cat.id];
+      html += '<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden;">';
+      html += '<button class="settings-menu-row" style="padding:12px 14px;" data-action="toggle-info" data-info-id="'+cat.id+'">';
+      html += '<span class="settings-menu-icon" style="background:'+cat.color+';">'+icon(cat.icon,18)+'</span>';
+      html += '<span style="flex:1;min-width:0;"><div class="settings-menu-label">'+cat.title+'</div></span>';
+      html += '<span class="settings-menu-chevron" style="transform:rotate('+(open?"90":"0")+'deg);transition:transform .15s;">'+icon("chevronRight",18)+'</span>';
+      html += '</button>';
+      if (open) {
+        html += '<div style="padding:0 14px 14px;border-top:1px solid var(--line);">';
+        html += '<ul style="margin:12px 0 0;padding-left:18px;">';
+        cat.points.forEach(p => { html += '<li style="margin-bottom:8px;font-size:13px;line-height:1.5;color:var(--chalk-dim);">'+esc(p)+'</li>'; });
+        html += '</ul></div>';
+      }
+      html += '</div>';
+    });
+
   } else if (id === "about") {
     html += settingsSectionHeader("About");
     html += '<div class="card">';
@@ -2906,7 +3021,9 @@ function attachLiveInputs() {
       const day = state.routine[state.swapDow];
       const block = day && day.blocks.find(b => b.id === state.swapBlockId);
       const current = block ? exById(block.exerciseId) : null;
-      document.getElementById("swap-list").innerHTML = renderSwapList(swapCandidates(current, state.swapQuery));
+      const result = swapCandidates(current, state.swapQuery);
+      document.getElementById("swap-list").innerHTML = renderSwapList(result.list);
+      document.getElementById("swap-tier-label").innerHTML = renderSwapTierLabel(result.tier);
     });
   }
   // Add-exercise form fields (state-only, no re-render needed until submit)
@@ -3783,6 +3900,12 @@ document.addEventListener("click", (e) => {
     stopSessionTimer();
     const block = todaysSessionBlocks()[state.sessionIndex];
     if (block) state.sessionTimer = { blockId: block.id, remaining: block.durationSec, total: block.durationSec, running: false };
+    render(); return;
+  }
+  if (action === "open-tips") {
+    state.tab = "settings";
+    state.settingsSection = "tips";
+    pushHistory();
     render(); return;
   }
   if (action === "goto-profile") {

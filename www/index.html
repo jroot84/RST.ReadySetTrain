@@ -85,6 +85,14 @@
   .day-tag.strength { background: var(--ember-dim); color: var(--ember-tag); }
   .day-tag.rest { background: var(--bg800); color: var(--chalk-dim); border: 1px solid var(--line); }
 
+  .bmi-scale { position:relative; height:10px; border-radius:6px; margin-top:2px;
+    background: linear-gradient(to right,
+      #3B82F6 0%, #3B82F6 14%,
+      #43A047 14%, #43A047 40%,
+      #F5A623 40%, #F5A623 60%,
+      #DC2626 60%, #DC2626 100%); }
+  .bmi-scale-marker { position:absolute; top:-4px; width:3px; height:18px; border-radius:2px; background: var(--chalk); box-shadow:0 0 0 2px var(--bg900); transform:translateX(-50%); }
+
   .block-row { border-radius:8px; border:1px solid var(--line); background: var(--bg800); transition: background 0.15s, border-color 0.15s; margin-bottom:10px; }
   .block-row.done { background: var(--ember-wash); border-color: var(--ember); }
   .block-row-main { display:flex; align-items:center; gap:12px; padding:12px 14px; }
@@ -1476,6 +1484,20 @@ function bmiCategory(bmi) {
   if (bmi < 25) return "Normal range";
   if (bmi < 30) return "Overweight";
   return "Obesity range";
+}
+// Position on a fixed 15–40 display scale (matching the gradient stops in
+// the .bmi-scale CSS) plus a plain-language read on how far from the
+// normal range (18.5–25) the person currently sits, in whichever
+// direction applies — this is what actually answers "how close am I."
+function bmiScaleInfo(bmi) {
+  const MIN = 15, MAX = 40;
+  const clamped = Math.max(MIN, Math.min(MAX, bmi));
+  const markerPct = ((clamped - MIN) / (MAX - MIN)) * 100;
+  let distanceText;
+  if (bmi < 18.5) distanceText = (18.5 - bmi).toFixed(1) + " below Normal range";
+  else if (bmi < 25) distanceText = "In the normal range";
+  else distanceText = (bmi - 25).toFixed(1) + " above Normal range";
+  return { markerPct, distanceText };
 }
 
 function computeCheck() {
@@ -2872,9 +2894,18 @@ function renderCheckModal() {
       '<span style="font-family:\'Inter\',sans-serif;text-transform:none;letter-spacing:normal;font-size:12px;line-height:1.5;">This is general fitness guidance based on your inputs and current plan — not medical advice. Check with a healthcare provider before changing your routine, especially with any health condition.</span></div>';
 
     if (result.bmi) {
+      const scale = bmiScaleInfo(result.bmi);
       body += '<div class="card" style="margin-bottom:14px;">';
       body += '<div class="section-label font-mono" style="margin-bottom:6px;">Body Mass Index (BMI)</div>';
-      body += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;"><span class="font-display" style="font-size:32px;color:var(--chalk);">'+result.bmi.toFixed(1)+'</span><span class="day-tag strength">'+result.bmiCat+'</span></div>';
+      body += '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;"><span class="font-display" style="font-size:32px;color:var(--chalk);">'+result.bmi.toFixed(1)+'</span><span class="day-tag strength">'+result.bmiCat+'</span></div>';
+      body += '<div class="bmi-scale"><div class="bmi-scale-marker" style="left:'+scale.markerPct.toFixed(1)+'%;"></div></div>';
+      body += '<div style="display:flex;margin-top:6px;">';
+      body += '<div style="flex:0 0 14%;text-align:left;"><span class="font-mono" style="font-size:9px;color:var(--chalk-dim);text-transform:uppercase;letter-spacing:0.04em;">Under</span></div>';
+      body += '<div style="flex:0 0 26%;text-align:center;"><span class="font-mono" style="font-size:9px;color:var(--chalk-dim);text-transform:uppercase;letter-spacing:0.04em;">Normal</span></div>';
+      body += '<div style="flex:0 0 20%;text-align:center;"><span class="font-mono" style="font-size:9px;color:var(--chalk-dim);text-transform:uppercase;letter-spacing:0.04em;">Over</span></div>';
+      body += '<div style="flex:1;text-align:right;"><span class="font-mono" style="font-size:9px;color:var(--chalk-dim);text-transform:uppercase;letter-spacing:0.04em;">Obese</span></div>';
+      body += '</div>';
+      body += '<div class="font-mono" style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--chalk);margin:8px 0 10px;">'+scale.distanceText+'</div>';
       body += '<p style="margin:0;font-size:13px;line-height:1.5;color:var(--chalk-dim);">'+result.bmiNote+'</p>';
       body += '</div>';
     }
